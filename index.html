@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%223%22 fill=%22%230f1115%22/%3E%3Ccircle cx=%228%22 cy=%228%22 r=%223%22 fill=%22%235eb0ef%22/%3E%3C/svg%3E" />
+<title>Dirty Data Sandbox — SQL &amp; pandas practice</title>
+<meta name="description" content="A browser-only sandbox for practising SQL and pandas against deliberately messy synthetic data. No signup, no backend." />
+<style>
+/* ============================================================================
+   Design tokens
+   ========================================================================== */
+:root {
+  --bg:            #0f1115;
+  --bg-raised:     #161a21;
+  --bg-sunken:     #0a0c10;
+  --bg-hover:      #1d222b;
+  --border:        #272d38;
+  --border-strong: #38414f;
+  --text:          #dbe1ea;
+  --text-dim:      #98a2b3;
+  --text-faint:    #646e7e;
+  --accent:        #5eb0ef;
+  --accent-dim:    #2f6d9e;
+  --good:          #56d364;
+  --warn:          #e3b341;
+  --bad:           #f85149;
+  --null:          #b47cff;
+  --ws:            #e3b341;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --row-h: 26px;
+}
+:root[data-theme="light"] {
+  --bg:            #fbfcfd;
+  --bg-raised:     #ffffff;
+  --bg-sunken:     #f1f3f6;
+  --bg-hover:      #eaeef3;
+  --border:        #dde2e9;
+  --border-strong: #c3ccd7;
+  --text:          #1b2230;
+  --text-dim:      #5a6472;
+  --text-faint:    #8b95a3;
+  --accent:        #1a6fb5;
+  --accent-dim:    #9ec5e6;
+  --good:          #1a7f37;
+  --warn:          #9a6700;
+  --bad:           #cf222e;
+  --null:          #8250df;
+  --ws:            #9a6700;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; font-size: inherit; color: inherit; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; border: 3px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ============================================================================
+   Shell
+   ========================================================================== */
+#app { display: flex; flex-direction: column; height: 100%; }
+
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  height: 44px; flex: 0 0 44px;
+  padding: 0 12px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: baseline; gap: 8px; font-weight: 600; letter-spacing: -0.01em; }
+.brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.brand small { color: var(--text-faint); font-weight: 400; letter-spacing: 0; }
+
+.tabs { display: flex; gap: 2px; margin-left: 8px; }
+.tab {
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  padding: 5px 12px; cursor: pointer; color: var(--text-dim); font-weight: 500;
+}
+.tab:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.tab[aria-selected="true"] { background: var(--bg-hover); color: var(--text); border-color: var(--border); }
+.tab:disabled { opacity: 0.4; cursor: not-allowed; }
+.tab .pill { font-size: 10px; color: var(--text-faint); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; margin-left: 6px; }
+
+.spacer { flex: 1; }
+
+.btn {
+  background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; color: var(--text-dim); white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.primary { background: var(--accent-dim); border-color: var(--accent-dim); color: #fff; font-weight: 600; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.15); color: #fff; }
+.btn.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+kbd {
+  font-family: var(--mono); font-size: 10px; border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px; color: var(--text-faint);
+  margin-left: 6px; background: var(--bg);
+}
+
+.body { flex: 1; display: flex; min-height: 0; }
+
+/* ============================================================================
+   Sidebar
+   ========================================================================== */
+#sidebar {
+  width: 250px; flex: 0 0 250px; min-width: 0;
+  background: var(--bg-raised); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#sidebar.collapsed { flex-basis: 0; width: 0; border-right: none; }
+.side-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px 6px; color: var(--text-faint);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+}
+.side-scroll { overflow-y: auto; flex: 1; padding-bottom: 16px; }
+.table-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 12px; background: none; border: none; cursor: pointer; text-align: left;
+  border-left: 2px solid transparent;
+}
+.table-row:hover { background: var(--bg-hover); border-left-color: var(--accent); }
+.table-row .nm { font-family: var(--mono); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.table-row .ct { color: var(--text-faint); font-variant-numeric: tabular-nums; font-size: 11px; }
+.side-note { padding: 10px 12px; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
+
+/* ============================================================================
+   Main / panels
+   ========================================================================== */
+main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.panel { flex: 1; display: none; flex-direction: column; min-height: 0; }
+.panel.active { display: flex; }
+
+.editor-wrap { position: relative; min-height: 80px; }
+#editor { position: absolute; inset: 0; }
+#editor textarea.fallback {
+  width: 100%; height: 100%; border: 0; resize: none; outline: none;
+  background: var(--bg-sunken); color: var(--text);
+  font-family: var(--mono); font-size: 13px; padding: 10px; line-height: 1.5;
+}
+
+.splitter { height: 6px; flex: 0 0 6px; cursor: row-resize; background: var(--bg); position: relative; }
+.splitter::after {
+  content: ""; position: absolute; left: 50%; top: 2px; width: 36px; height: 2px;
+  margin-left: -18px; border-radius: 2px; background: var(--border-strong);
+}
+.splitter:hover::after { background: var(--accent); }
+
+.runbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; background: var(--bg-raised);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.status { color: var(--text-dim); font-family: var(--mono); font-size: 11.5px; display: flex; align-items: center; gap: 8px; }
+.status .ok { color: var(--good); }
+.status .err { color: var(--bad); }
+.spinner {
+  width: 11px; height: 11px; border: 2px solid var(--border-strong);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.hint { color: var(--text-faint); font-size: 11px; }
+
+#results { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg-sunken); }
+
+/* ============================================================================
+   Results grid (virtualised)
+   ========================================================================== */
+.grid-scroll { flex: 1; overflow: auto; position: relative; }
+.grid-head {
+  position: sticky; top: 0; z-index: 3; display: flex;
+  background: var(--bg-raised); border-bottom: 1px solid var(--border-strong);
+  height: 30px; width: max-content; min-width: 100%;
+}
+.gh {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 2px 8px; border-right: 1px solid var(--border);
+  cursor: pointer; user-select: none; overflow: hidden; flex: 0 0 auto;
+}
+.gh:hover { background: var(--bg-hover); }
+.gh .n { font-weight: 600; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gh .t { font-size: 9.5px; color: var(--text-faint); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.03em; }
+.gh .arrow { color: var(--accent); }
+.gh.rownum { cursor: default; background: var(--bg-raised); position: sticky; left: 0; z-index: 4; }
+.gh.rownum:hover { background: var(--bg-raised); }
+.gh.filler { flex: 1 1 auto; border-right: none; cursor: default; }
+.gh.filler:hover { background: var(--bg-raised); }
+
+.grid-body { position: relative; width: max-content; min-width: 100%; }
+.grid-rows { position: absolute; left: 0; top: 0; width: 100%; will-change: transform; }
+.gr { display: flex; height: var(--row-h); min-width: 100%; }
+.gr:hover { background: var(--bg-hover); }
+.gr.odd { background: rgba(127,127,127,0.035); }
+.gr.odd:hover { background: var(--bg-hover); }
+.gc {
+  padding: 0 8px; line-height: var(--row-h); font-family: var(--mono); font-size: 11.5px;
+  white-space: pre; overflow: hidden; text-overflow: ellipsis;
+  border-right: 1px solid var(--border); flex: 0 0 auto;
+}
+.gc.num { text-align: right; font-variant-numeric: tabular-nums; }
+.gc.rownum {
+  color: var(--text-faint); text-align: right; background: var(--bg-sunken);
+  position: sticky; left: 0; z-index: 1; border-right-color: var(--border-strong);
+}
+.gr:hover .gc.rownum { background: var(--bg-hover); }
+.gc.filler { flex: 1 1 auto; border-right: none; }
+.gc .nul { color: var(--null); font-style: italic; opacity: 0.85; }
+.gc .emp { color: var(--text-faint); font-style: italic; }
+.gc .ws { background: color-mix(in srgb, var(--ws) 22%, transparent); border-radius: 2px; color: var(--ws); }
+
+.grid-foot {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
+  padding: 5px 10px; border-top: 1px solid var(--border);
+  background: var(--bg-raised); color: var(--text-dim); font-size: 11.5px;
+  font-family: var(--mono);
+}
+.grid-foot .legend { display: flex; gap: 10px; margin-left: auto; color: var(--text-faint); }
+.grid-foot .legend span i { font-style: italic; }
+
+.placeholder { padding: 28px; color: var(--text-faint); line-height: 1.7; }
+.placeholder code { font-family: var(--mono); color: var(--text-dim); }
+
+.errbox { padding: 14px 16px; overflow: auto; flex: 1; }
+.errbox h4 { margin: 0 0 8px; color: var(--bad); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+.errbox pre {
+  margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+  background: var(--bg-raised); border: 1px solid var(--border); border-left: 3px solid var(--bad);
+  border-radius: 6px; padding: 12px;
+}
+
+/* ============================================================================
+   Boot overlay + modal
+   ========================================================================== */
+#boot {
+  position: fixed; inset: 0; z-index: 100; display: flex;
+  align-items: center; justify-content: center; background: var(--bg);
+}
+#boot.done { display: none; }
+.boot-card { width: min(520px, 92vw); }
+.boot-card h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.02em; }
+.boot-card p { color: var(--text-dim); margin: 0 0 20px; line-height: 1.6; }
+.boot-steps { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; }
+.boot-steps li { display: flex; gap: 10px; align-items: center; padding: 4px 0; color: var(--text-faint); }
+.boot-steps li .mark { width: 14px; text-align: center; }
+.boot-steps li.active { color: var(--text); }
+.boot-steps li.ok { color: var(--good); }
+.boot-steps li.fail { color: var(--bad); }
+.boot-err {
+  margin-top: 18px; padding: 12px; border-radius: 6px; font-family: var(--mono); font-size: 11.5px;
+  background: var(--bg-raised); border: 1px solid var(--border); border-left: 3px solid var(--bad);
+  white-space: pre-wrap; line-height: 1.55; display: none;
+}
+.boot-err.show { display: block; }
+
+.modal { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.6); display: none; }
+.modal.open { display: flex; align-items: center; justify-content: center; }
+.modal-card {
+  width: min(880px, 94vw); max-height: 86vh; display: flex; flex-direction: column;
+  background: var(--bg-raised); border: 1px solid var(--border-strong);
+  border-radius: 10px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.modal-head { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.modal-head h2 { margin: 0; font-size: 15px; }
+.modal-body { overflow: auto; padding: 0 18px 20px; }
+.dict-warn {
+  margin: 16px 0; padding: 10px 12px; border-radius: 6px; line-height: 1.6;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); color: var(--text);
+}
+.dict-table { margin-bottom: 26px; }
+.dict-table h3 { font-family: var(--mono); font-size: 13px; margin: 0 0 2px; color: var(--accent); }
+.dict-table .grain { color: var(--text-dim); margin: 0 0 8px; font-size: 12px; }
+.dict-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dict-table th { text-align: left; color: var(--text-faint); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.dict-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.dict-table td.c-name { font-family: var(--mono); white-space: nowrap; }
+.dict-table td.c-type { font-family: var(--mono); color: var(--text-faint); white-space: nowrap; }
+.dict-table td.c-desc { color: var(--text-dim); line-height: 1.5; }
+
+@media (max-width: 860px) {
+  #sidebar { position: absolute; z-index: 20; height: calc(100% - 44px); top: 44px; box-shadow: 0 0 40px rgba(0,0,0,0.5); }
+  #sidebar.collapsed { box-shadow: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header class="topbar">
+    <button class="btn" id="btn-sidebar" title="Toggle sidebar (Ctrl+B)">☰</button>
+    <div class="brand"><span class="dot"></span> Dirty Data Sandbox <small>SQL &amp; pandas on messy data</small></div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" id="tab-sql" role="tab" aria-selected="true">SQL <span class="pill">DuckDB</span></button>
+      <button class="tab" id="tab-py" role="tab" aria-selected="false" disabled title="Arrives in stage 3">pandas <span class="pill">stage 3</span></button>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn" id="btn-dict">Data dictionary</button>
+    <button class="btn" id="btn-theme" title="Toggle theme">◐</button>
+    <button class="btn danger" id="btn-reset" title="Re-create every table from freshly generated data">Reset data</button>
+  </header>
+
+  <div class="body">
+    <aside id="sidebar">
+      <div class="side-head"><span>Tables</span><span id="side-rowtotal"></span></div>
+      <div class="side-scroll" id="side-tables"></div>
+      <div class="side-note">
+        Click a table to draft a <code>SELECT</code>.<br>
+        Full schema browser and the task list land in stage&nbsp;2.
+      </div>
+    </aside>
+
+    <main>
+      <section class="panel active" id="panel-sql">
+        <div class="editor-wrap" id="editor-wrap" style="flex: 0 0 240px;">
+          <div id="editor"></div>
+        </div>
+        <div class="splitter" id="splitter"></div>
+        <div class="runbar">
+          <button class="btn primary" id="btn-run">Run ▸<kbd>Ctrl ⏎</kbd></button>
+          <button class="btn" id="btn-cancel" style="display:none">Cancel</button>
+          <div class="status" id="status"></div>
+          <div class="spacer"></div>
+          <div class="hint">Select text to run only the selection</div>
+        </div>
+        <div id="results">
+          <div class="placeholder">
+            Results appear here. Try the query above, or click a table on the left.<br><br>
+            The data is <em>deliberately</em> broken: mixed date formats, money stored as
+            <code>"$1,240.50"</code>, duplicate <code>products.sku</code> values that silently
+            inflate joins, orphaned foreign keys, mojibake, and nulls that mean three different
+            things. The <strong>Data dictionary</strong> describes what it was <em>supposed</em>
+            to look like.
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div id="boot">
+  <div class="boot-card">
+    <h1><span class="brand"><span class="dot"></span></span> Dirty Data Sandbox</h1>
+    <p>Practising SQL and pandas against realistically awful data. Everything runs in your browser — no account, no server, nothing saved.</p>
+    <ul class="boot-steps">
+      <li id="step-gen"><span class="mark">·</span><span>Generating synthetic dataset</span></li>
+      <li id="step-wasm"><span class="mark">·</span><span>Downloading DuckDB-WASM</span></li>
+      <li id="step-load"><span class="mark">·</span><span>Loading tables</span></li>
+      <li id="step-ui"><span class="mark">·</span><span>Starting editor</span></li>
+    </ul>
+    <div class="boot-err" id="boot-err"></div>
+  </div>
+</div>
+
+<div class="modal" id="dict-modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Data dictionary — the <em>intended</em> schema</h2>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-dict-close">Close <kbd>Esc</kbd></button>
+    </div>
+    <div class="modal-body" id="dict-body"></div>
+  </div>
+</div>
+
+<!-- The fallback DuckDB entry (dist/duckdb-browser.mjs) carries a BARE
+     `import ... from "apache-arrow"`, which no browser can resolve on its own.
+     This map is inert while the primary `+esm` bundle works, and makes the
+     fallback genuinely loadable if jsDelivr's ESM transform ever breaks.
+     Version matches the arrow that duckdb-wasm 1.29.0 is built against. -->
+<script type="importmap">
+{ "imports": { "apache-arrow": "https://cdn.jsdelivr.net/npm/apache-arrow@17.0.0/+esm" } }
+</script>
+
+<!-- Monaco: classic AMD loader, pinned. Loaded before the module script so the
+     editor is ready by the time the WASM engine finishes booting. -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+
+<script type="module">
+'use strict';
+
+/* ============================================================================
+ * SECTION 0 — Constants & tiny DOM helpers
+ * ========================================================================== */
+
+const DUCKDB_VERSION = '1.29.0';          // pinned; never @latest
+const MONACO_BASE    = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/';
+const DATA_SEED      = 8675309;           // fixed => every visitor sees identical bytes
+const MAX_RENDER_ROWS = 200000;           // hard cap on materialised result rows
+const LS_PREFIX      = 'dds:';            // localStorage namespace (UI prefs only)
+
+const $  = (sel, root = document) => root.querySelector(sel);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
+const prefGet = (k, dflt) => { try { const v = localStorage.getItem(LS_PREFIX + k); return v === null ? dflt : v; } catch { return dflt; } };
+const prefSet = (k, v)    => { try { localStorage.setItem(LS_PREFIX + k, v); } catch { /* private mode */ } };
+
+
+/* ============================================================================
+ * SECTION 1 — Seeded PRNG and random helpers
+ *
+ * Every random draw in this file comes from one mulberry32 stream seeded with
+ * DATA_SEED. Consequence: the order in which generators consume randomness is
+ * part of the contract. If you insert a new draw in the middle of a generator,
+ * every downstream value shifts and the task solutions stop matching the data.
+ * Add new draws at the END of a generator, or bump the documented seed.
+ * ========================================================================== */
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeRandom(seed) {
+  const rnd = mulberry32(seed);
+  const R = {
+    next: rnd,
+    /** Inclusive integer in [lo, hi]. */
+    int: (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1)),
+    /** Float in [lo, hi). */
+    float: (lo, hi) => lo + rnd() * (hi - lo),
+    /** Two-decimal float in [lo, hi). */
+    money: (lo, hi) => Math.round((lo + rnd() * (hi - lo)) * 100) / 100,
+    pick: (arr) => arr[Math.floor(rnd() * arr.length)],
+    /** True with probability p. */
+    chance: (p) => rnd() < p,
+    /** Index biased toward 0; higher `power` = stronger head-bias. */
+    biasedIndex: (n, power) => Math.min(n - 1, Math.floor(Math.pow(rnd(), power) * n)),
+    /** pairs: [[value, weight], ...] */
+    weighted: (pairs) => {
+      let total = 0;
+      for (const p of pairs) total += p[1];
+      let x = rnd() * total;
+      for (const p of pairs) { x -= p[1]; if (x <= 0) return p[0]; }
+      return pairs[pairs.length - 1][0];
+    },
+    /** Deterministic Fisher-Yates. */
+    shuffle: (arr) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(rnd() * (i + 1));
+        const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+      }
+      return arr;
+    },
+  };
+  return R;
+}
+
+
+/* ============================================================================
+ * SECTION 2 — Defect rates
+ *
+ * ONE place to tune how dirty the data is. Everything below is "fraction of
+ * rows affected". Target band is 3–12% per defect: discoverable without making
+ * the dataset unusable. Raising any of these does not change row counts or
+ * primary keys, so tasks keep working — only the difficulty moves.
+ * ========================================================================== */
+
+const DEFECTS = {
+  // --- #4 whitespace / casing in join keys and categoricals -----------------
+  countryVariant:      0.17,  // "  US" / "us" / "USA" / "United States"
+  segmentVariant:      0.11,
+  statusVariant:       0.20,  // shipped / SHIPPED / Shipped / "shipped "
+  channelVariant:      0.12,
+  categoryVariant:     0.10,
+  reasonVariant:       0.16,
+  eventTypeVariant:    0.04,
+  nameWhitespace:      0.05,
+  emailNoise:          0.09,  // casing + stray spaces in emails
+
+  // --- #3 inconsistent date formats in the same column ---------------------
+  dateUS:              0.07,  // 03/05/2024
+  dateLong:            0.06,  // 5 Mar 2024
+  dateEpoch:           0.04,  // "1709596800000"
+  tsEpoch:             0.05,  // web_events epoch millis
+  tsIsoZ:              0.04,  // 2024-03-05T14:22:01Z
+
+  // --- #5 numerics stored as strings ---------------------------------------
+  moneyCurrency:       0.16,  // "$1,240.50"
+  moneyThousands:      0.06,  // "1,240.50" (no symbol)
+  discountAsPercent:   0.22,  // "15%"
+  discountAsWholeNum:  0.15,  // 15  (meaning 15%, next to 0.15 meaning the same)
+
+  // --- #1 nulls with three different meanings ------------------------------
+  nullUnknownCountry:  0.04,  // unknown
+  nullDiscountIsZero:  0.09,  // null MEANS zero discount
+  nullRefundPending:   0.11,  // null MEANS "not applicable yet" (status = pending)
+  anonymousEvent:      0.34,  // web_events.customer_id null MEANS logged-out
+
+  // --- #8 orphaned foreign keys --------------------------------------------
+  orphanSupplier:      0.09,
+  orphanReferrer:      0.06,
+  orphanOrderCustomer: 0.04,
+  orphanItemSku:       0.03,
+  orphanReturnItem:    0.02,
+
+  // --- #9 mixed-type column (qty) ------------------------------------------
+  qtyJunk:             0.04,  // "N/A" | "unknown" | ""
+  qtyNegative:         0.02,
+
+  // --- #10 out-of-range / impossible ---------------------------------------
+  futureSignup:        0.015,
+  returnBeforeOrder:   0.04,
+  refundOverLineTotal: 0.05,
+
+  // --- #11 encoding artefacts ----------------------------------------------
+  mojibake:            0.25,  // share of ACCENTED names mangled (~8% of all rows)
+
+  // --- #6 duplicate rows ----------------------------------------------------
+  dupCustomersExact:   20,    // absolute counts, not fractions
+  dupCustomersNear:    22,
+  dupProductsExact:    4,
+  dupEventsExact:      900,
+  dupSuppliersNear:    2,
+  // --- #7 duplicate SKUs: the join fan-out trap ----------------------------
+  dupProductSkus:      12,    // drawn from the popular head of the catalogue
+
+  // --- #2 empty / whitespace-only rows --------------------------------------
+  blankRowsCustomers:  9,
+  blankRowsOrders:     11,
+  blankRowsItems:      14,
+  blankRowsProducts:   4,
+};
+
+/** The dataset's notional "today". Anything after this is a future-dated bug. */
+const AS_OF = Date.UTC(2025, 6, 1);           // 2025-07-01
+const ORDER_WINDOW = [Date.UTC(2023, 0, 1), Date.UTC(2025, 5, 30)];
+const SIGNUP_WINDOW = [Date.UTC(2022, 0, 1), Date.UTC(2025, 5, 30)];
+
+
+/* ============================================================================
+ * SECTION 3 — Corruption primitives
+ *
+ * Small, pure string-mangling helpers. Kept separate from the generators so a
+ * defect can be tuned or disabled without touching business logic.
+ * ========================================================================== */
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const pad2 = (n) => (n < 10 ? '0' + n : String(n));
+
+/** ISO date, UTC, so the output does not depend on the visitor's timezone. */
+function isoDate(ms) {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+function isoTimestamp(ms) {
+  const d = new Date(ms);
+  return `${isoDate(ms)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
+/** Defect #3: same column, four different date encodings. */
+function dateVariant(ms, R) {
+  const r = R.next();
+  if (r < DEFECTS.dateUS) {
+    const d = new Date(ms);
+    return `${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())}/${d.getUTCFullYear()}`;
+  }
+  if (r < DEFECTS.dateUS + DEFECTS.dateLong) {
+    const d = new Date(ms);
+    return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  }
+  if (r < DEFECTS.dateUS + DEFECTS.dateLong + DEFECTS.dateEpoch) {
+    return String(ms);                       // epoch millis as a string
+  }
+  return isoDate(ms);
+}
+
+function timestampVariant(ms, R) {
+  const r = R.next();
+  if (r < DEFECTS.tsEpoch) return String(ms);
+  if (r < DEFECTS.tsEpoch + DEFECTS.tsIsoZ) {
+    return isoTimestamp(ms).replace(' ', 'T') + 'Z';
+  }
+  return isoTimestamp(ms);
+}
+
+/** 1240.5 -> "1,240.50" */
+function withThousands(n) {
+  const fixed = Math.abs(n).toFixed(2);
+  const [int, frac] = fixed.split('.');
+  return int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + frac;
+}
+
+/**
+ * Defect #5. Negatives always render parenthesised ("(85.00)") because that is
+ * what accounting exports do — and it is what breaks a naive CAST.
+ */
+function moneyVariant(n, R) {
+  if (n < 0) {
+    return R.chance(0.5) ? `(${withThousands(n)})` : `($${withThousands(n)})`;
+  }
+  const r = R.next();
+  if (r < DEFECTS.moneyCurrency)  return '$' + withThousands(n);
+  if (r < DEFECTS.moneyCurrency + DEFECTS.moneyThousands) return withThousands(n);
+  return n.toFixed(2);
+}
+
+/**
+ * Defect #11. Encode to UTF-8 then decode each byte as Latin-1 — exactly the
+ * bug that turns "José" into "JosÃ©". Done programmatically so it stays correct
+ * for any name added to the pools later.
+ */
+function mojibake(s) {
+  const bytes = new TextEncoder().encode(s);
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+  return out;
+}
+
+/** Defect #4. Picks a spelling for a canonical categorical value. */
+function makeVocab(variants, rate) {
+  return (canonical, R) => {
+    const alts = variants[canonical];
+    if (!alts || !R.chance(rate)) return canonical;
+    return alts[Math.floor(R.next() * alts.length)];
+  };
+}
+
+const COUNTRY_VARIANTS = {
+  US: ['us', '  US', 'USA', 'United States', 'U.S.', 'us ', 'United States of America'],
+  GB: ['gb', 'UK', 'uk', 'United Kingdom', ' GB', 'Great Britain'],
+  DE: ['de', 'Germany', 'Deutschland', 'GERMANY ', ' de'],
+  FR: ['fr', 'France', ' france', 'FRANCE'],
+  CA: ['ca', 'Canada', 'CAN', 'canada '],
+  AU: ['au', 'Australia', 'au ', 'AUS'],
+  BR: ['br', 'Brazil', 'Brasil', 'BRAZIL '],
+  IN: ['in', 'India', ' IN', 'IND'],
+  JP: ['jp', 'Japan', 'jp ', 'JPN'],
+  MX: ['mx', 'Mexico', 'México', 'MEXICO '],
+};
+const SEGMENT_VARIANTS = {
+  Consumer:   ['consumer', 'CONSUMER', ' Consumer', 'consumer '],
+  SMB:        ['smb', 'Smb', 'SMB ', ' smb', 'Small Business'],
+  Enterprise: ['enterprise', 'ENTERPRISE', 'Enterprise ', ' enterprise', 'ENT'],
+};
+/**
+ * Defect #12. Note "canceled" (one L) sitting beside "cancelled" — a spelling
+ * variant, not just a casing one, so GROUP BY lower(trim(status)) is not enough.
+ */
+const STATUS_VARIANTS = {
+  placed:    ['Placed', 'PLACED', 'placed ', ' placed'],
+  paid:      ['Paid', 'PAID', 'paid ', ' Paid'],
+  shipped:   ['Shipped', 'SHIPPED', 'shipped ', ' shipped', 'Shipped '],
+  delivered: ['Delivered', 'DELIVERED', 'delivered ', ' Delivered'],
+  cancelled: ['Cancelled', 'CANCELLED', 'canceled', 'Canceled', 'cancelled '],
+  refunded:  ['Refunded', 'REFUNDED', 'refunded ', ' refunded'],
+};
+const CHANNEL_VARIANTS = {
+  web:          ['Web', 'WEB', 'web ', ' web'],
+  mobile_app:   ['Mobile App', 'mobile app', 'MOBILE_APP', 'mobile-app', 'mobile_app '],
+  marketplace:  ['Marketplace', 'MARKETPLACE', 'marketplace ', 'Market Place'],
+  phone:        ['Phone', 'PHONE', 'phone ', 'Call Center'],
+};
+const CATEGORY_VARIANTS = {
+  Audio:    ['audio', 'AUDIO', ' Audio', 'audio '],
+  Home:     ['home', 'HOME ', ' Home', 'Home Goods'],
+  Kitchen:  ['kitchen', 'KITCHEN', 'Kitchenware', 'kitchen '],
+  Outdoors: ['outdoors', 'OUTDOORS', 'Outdoor', ' Outdoors'],
+  Office:   ['office', 'OFFICE', 'Office Supplies', 'office '],
+  Fitness:  ['fitness', 'FITNESS', ' Fitness', 'Fitness '],
+  Pet:      ['pet', 'PET', 'Pet Supplies', 'pets'],
+  Toys:     ['toys', 'TOYS', 'Toys & Games', ' Toys'],
+};
+const REASON_VARIANTS = {
+  damaged:          ['Damaged', 'DAMAGED', 'damaged ', ' damaged'],
+  wrong_item:       ['Wrong Item', 'wrong item', 'WRONG_ITEM', 'wrong-item'],
+  not_as_described: ['Not As Described', 'not as described', 'NOT_AS_DESCRIBED'],
+  changed_mind:     ['Changed Mind', 'changed mind', 'CHANGED_MIND', 'changed_mind '],
+  late_delivery:    ['Late Delivery', 'late delivery', 'LATE_DELIVERY'],
+  defective:        ['Defective', 'DEFECTIVE', 'defective ', ' defective'],
+};
+const EVENT_TYPE_VARIANTS = {
+  page_view:      ['Page_View', 'PAGE_VIEW'],
+  product_view:   ['Product_View', 'PRODUCT_VIEW'],
+  search:         ['Search', 'SEARCH'],
+  add_to_cart:    ['Add_To_Cart', 'ADD_TO_CART'],
+  checkout_start: ['Checkout_Start', 'CHECKOUT_START'],
+  purchase:       ['Purchase', 'PURCHASE'],
+};
+
+const vCountry   = makeVocab(COUNTRY_VARIANTS,   DEFECTS.countryVariant);
+const vSegment   = makeVocab(SEGMENT_VARIANTS,   DEFECTS.segmentVariant);
+const vStatus    = makeVocab(STATUS_VARIANTS,    DEFECTS.statusVariant);
+const vChannel   = makeVocab(CHANNEL_VARIANTS,   DEFECTS.channelVariant);
+const vCategory  = makeVocab(CATEGORY_VARIANTS,  DEFECTS.categoryVariant);
+const vReason    = makeVocab(REASON_VARIANTS,    DEFECTS.reasonVariant);
+const vEventType = makeVocab(EVENT_TYPE_VARIANTS, DEFECTS.eventTypeVariant);
+
+
+/* ============================================================================
+ * SECTION 4 — Name / vocabulary pools
+ * ========================================================================== */
+
+const FIRST_NAMES = [
+  'Olivia','Liam','Emma','Noah','Ava','Ethan','Sophia','Mason','Isabella','Lucas',
+  'Mia','Logan','Amelia','James','Harper','Benjamin','Evelyn','Jack','Abigail','Henry',
+  'José','Renée','François','Søren','Ángel','Zoë','Łukasz','Mateo','Yuki','Hiroshi',
+  'Priya','Arjun','Sanjay','Wei','Ling','Ana','Carlos','Lucía','Pedro','Ingrid',
+  'Björn','Nadia','Omar','Fatima','Chloé','Thierry','Greta','Anouk','Kasper','Mira',
+];
+const LAST_NAMES = [
+  'Smith','Johnson','Williams','Brown','Jones','Garcia','Miller','Davis','Wilson','Anderson',
+  'Rodríguez','Martínez','Hernández','Lopez','Gonzalez','Thomas','Taylor','Moore','Jackson','Martin',
+  'Müller','Schmidt','Schneider','Fischer','Weber','Dubois','Moreau','Laurent','Kowalski','Nowak',
+  'Silva','Santos','Oliveira','Souza','Patel','Sharma','Singh','Tanaka','Suzuki','Sato',
+  'Kim','Park','Chen','Wang','Li','Nguyen',"O'Brien",'Ålund','Öztürk','Hansen',
+];
+const SUPPLIER_STEMS = [
+  'Northwind','Aurora','Vertex','Pinnacle','Cobalt','Meridian','Lakeshore','Ironwood','Granite','Silverline',
+  'Bluepeak','Redwood','Harbor','Quarry','Summit','Aspen','Clearwater','Foxglove','Juniper','Kestrel',
+  'Lantern','Magnolia','Nightjar','Orchard','Pelican','Quicksilver','Ridgeway','Sandpiper','Thistle','Umbra',
+  'Vireo','Windrose','Yarrow','Zéphyr','Alder','Birchwood','Cèdreline','Driftwood','Elmgrove','Fernbänk',
+];
+const SUPPLIER_SUFFIXES = ['Trading Co.','Industries','Supply Group','Manufacturing','Exports Ltd','Holdings','& Co.','Partners','Logistics','Works'];
+
+const COUNTRIES = ['US','GB','DE','FR','CA','AU','BR','IN','JP','MX'];
+const SEGMENTS  = ['Consumer','SMB','Enterprise'];
+const CATEGORIES = ['Audio','Home','Kitchen','Outdoors','Office','Fitness','Pet','Toys'];
+
+const CATEGORY_WORDS = {
+  Audio:    { adj: ['Studio','Wireless','Compact','Pro','Vintage','Noise-Cancelling'], noun: ['Headphones','Earbuds','Speaker','Soundbar','Turntable','Microphone'] },
+  Home:     { adj: ['Linen','Weighted','Modular','Rustic','Plush'],                    noun: ['Throw Blanket','Floor Lamp','Shelf Unit','Door Mat','Mirror','Cushion'] },
+  Kitchen:  { adj: ['Cast Iron','Stainless','Ceramic','Non-Stick','Copper','Café'],    noun: ['Skillet','Kettle','Knife Set','Mixing Bowl','Espresso Press','Storage Jar','Crème Brûlée Set'] },
+  Outdoors: { adj: ['All-Weather','Ultralight','Insulated','Rugged','Packable'],        noun: ['Tent','Backpack','Water Bottle','Camp Stove','Headlamp','Sleeping Bag'] },
+  Office:   { adj: ['Ergonomic','Adjustable','Minimalist','Mesh','Standing'],           noun: ['Desk Chair','Monitor Arm','Desk Pad','Filing Box','Task Light','Notebook'] },
+  Fitness:  { adj: ['Competition','Adjustable','Textured','Olympic','Foldable'],        noun: ['Kettlebell','Yoga Mat','Resistance Set','Jump Rope','Foam Roller','Dumbbell'] },
+  Pet:      { adj: ['Orthopedic','Chew-Proof','Reflective','Collapsible','Quilted'],    noun: ['Dog Bed','Leash','Travel Bowl','Cat Tree','Grooming Kit','Carrier'] },
+  Toys:     { adj: ['Wooden','Magnetic','Glow-in-the-Dark','Oversized','Classic'],      noun: ['Building Set','Puzzle','Board Game','Marble Run','Play Kitchen','Rocket Kit','Piñata'] },
+};
+
+const EVENT_PAGES = ['/', '/search', '/cart', '/checkout', '/account', '/help', '/deals'];
+
+
+/* ============================================================================
+ * SECTION 5 — Entity generation (clean)
+ *
+ * These produce the *logical* records. No corruption here: a supplier's country
+ * is 'US', a price is a number, a date is a millisecond timestamp. Corruption
+ * happens in SECTION 6, at serialisation time, so both engines receive exactly
+ * the same broken bytes.
+ * ========================================================================== */
+
+function genSuppliers(R) {
+  const out = [];
+  for (let i = 0; i < 40; i++) {
+    out.push({
+      supplier_id: i + 1,
+      supplier_name: `${SUPPLIER_STEMS[i]} ${R.pick(SUPPLIER_SUFFIXES)}`,
+      country: R.pick(COUNTRIES),
+    });
+  }
+  return out;
+}
+
+function genProducts(R, suppliers) {
+  const out = [];
+  for (let i = 0; i < 400; i++) {
+    const category = R.pick(CATEGORIES);
+    const w = CATEGORY_WORDS[category];
+    out.push({
+      sku: 'SKU-' + String(i + 1).padStart(4, '0'),
+      product_name: `${R.pick(w.adj)} ${R.pick(w.noun)}`,
+      category,
+      unit_cost: R.money(2.5, 480),
+      supplier_id: suppliers[R.int(0, suppliers.length - 1)].supplier_id,
+      // popularity drives how often the SKU shows up in order_items; the head of
+      // the catalogue is where the duplicate-SKU trap is planted.
+      popular: i < 120,
+    });
+  }
+  return out;
+}
+
+function genCustomers(R) {
+  const out = [];
+  for (let i = 0; i < 2000; i++) {
+    const first = R.pick(FIRST_NAMES);
+    const last  = R.pick(LAST_NAMES);
+    // Defect #10: a sliver of signups dated after the snapshot date.
+    const signup = R.chance(DEFECTS.futureSignup)
+      ? AS_OF + R.int(5, 500) * 86400000
+      : R.int(SIGNUP_WINDOW[0], SIGNUP_WINDOW[1]);
+    out.push({
+      customer_id: 1000 + i,
+      first, last,
+      full_name: `${first} ${last}`,
+      email: asciiEmail(first, last, i),
+      signup_ms: signup,
+      country: R.pick(COUNTRIES),
+      segment: R.weighted([['Consumer', 68], ['SMB', 24], ['Enterprise', 8]]),
+      referred_by: null,   // filled below, needs the full list
+    });
+  }
+  // Referral graph (#self-join material). Referrer always has a lower id, so the
+  // graph is a forest: recursive CTEs terminate.
+  for (let i = 0; i < out.length; i++) {
+    if (i > 0 && R.chance(0.30)) {
+      out[i].referred_by = out[R.int(0, i - 1)].customer_id;
+    }
+  }
+  return out;
+}
+
+/** Strips accents so the email column stays plausible while names do not. */
+function asciiEmail(first, last, i) {
+  const clean = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+                        .replace(/[^A-Za-z]/g, '').toLowerCase();
+  const domains = ['example.com', 'mail.example', 'corp.example', 'inbox.example'];
+  return `${clean(first)}.${clean(last)}${i % 7 === 0 ? i : ''}@${domains[i % domains.length]}`;
+}
+
+function genOrders(R, customers) {
+  const out = [];
+  for (let i = 0; i < 8000; i++) {
+    const cust = customers[R.biasedIndex(customers.length, 1.25)];
+    // Orders land after signup where possible; clamp keeps dates inside the window.
+    const lo = Math.max(ORDER_WINDOW[0], Math.min(cust.signup_ms, ORDER_WINDOW[1] - 86400000));
+    const orderMs = R.int(lo, ORDER_WINDOW[1]);
+    out.push({
+      order_id: 500000 + i,
+      customer_id: cust.customer_id,
+      order_ms: orderMs,
+      status: R.weighted([
+        ['delivered', 46], ['shipped', 18], ['paid', 12],
+        ['placed', 10], ['cancelled', 8], ['refunded', 6],
+      ]),
+      channel: R.weighted([['web', 52], ['mobile_app', 28], ['marketplace', 14], ['phone', 6]]),
+    });
+  }
+  return out;
+}
+
+function genOrderItems(R, orders, products) {
+  const out = [];
+  let id = 900000;
+  // ~2.5 lines per order. About 1% of orders get no lines at all (cancelled
+  // before the basket was written) so that orders -> order_items needs a LEFT
+  // JOIN to stay honest; an INNER JOIN silently loses those orders.
+  for (let i = 0; i < orders.length; i++) {
+    const order = orders[i];
+    const n = R.chance(0.01) ? 0 : R.weighted([[1, 27], [2, 26], [3, 22], [4, 15], [5, 10]]);
+    for (let k = 0; k < n; k++) {
+      const p = products[R.biasedIndex(products.length, 1.4)];
+      const qty = R.weighted([[1, 52], [2, 24], [3, 12], [4, 6], [5, 4], [6, 2]]);
+      // Retail price = cost with a category-agnostic markup, jittered.
+      const unitPrice = Math.round(p.unit_cost * R.float(1.35, 2.6) * 100) / 100;
+      out.push({
+        order_item_id: id++,
+        order_id: order.order_id,
+        order_ms: order.order_ms,          // carried for returns, not serialised
+        sku: p.sku,
+        qty,
+        unit_price: unitPrice,
+        // Defect #1: null discount MEANS zero, it is not unknown.
+        discount_pct: R.chance(DEFECTS.nullDiscountIsZero)
+          ? null
+          : R.weighted([[0, 44], [0.05, 14], [0.10, 16], [0.15, 12], [0.20, 8], [0.30, 4], [0.40, 2]]),
+      });
+    }
+  }
+  return out;
+}
+
+function genReturns(R, orderItems) {
+  const out = [];
+  // Only return items that actually have a sane quantity, then corrupt a few.
+  const pool = R.shuffle(orderItems.slice()).slice(0, 900);
+  for (let i = 0; i < pool.length; i++) {
+    const item = pool[i];
+    const lineTotal = item.qty * item.unit_price * (1 - (item.discount_pct || 0));
+    // Defect #10: a slice of returns predate their order.
+    const offsetDays = R.chance(DEFECTS.returnBeforeOrder) ? -R.int(1, 40) : R.int(1, 60);
+    const status = R.weighted([['approved', 62], ['pending', 22], ['rejected', 16]]);
+    let refund;
+    if (status === 'pending' && R.chance(DEFECTS.nullRefundPending / 0.22)) {
+      refund = null;                                     // "not applicable yet"
+    } else if (status === 'rejected') {
+      refund = R.chance(0.6) ? 0 : null;                 // 0 = declined, null = never adjudicated
+    } else if (R.chance(DEFECTS.refundOverLineTotal / 0.62)) {
+      refund = Math.round(lineTotal * R.float(1.2, 3.1) * 100) / 100;  // impossible
+    } else {
+      refund = Math.round(lineTotal * R.float(0.35, 1.0) * 100) / 100;
+    }
+    // A handful of negative "refunds" (chargeback reversals) to exercise the
+    // parenthesised-negative parsing path.
+    if (refund !== null && refund > 0 && R.chance(0.06)) refund = -refund;
+    out.push({
+      return_id: 700000 + i,
+      order_item_id: item.order_item_id,
+      return_ms: item.order_ms + offsetDays * 86400000,
+      reason: R.weighted([
+        ['damaged', 20], ['wrong_item', 18], ['not_as_described', 16],
+        ['changed_mind', 24], ['late_delivery', 12], ['defective', 10],
+      ]),
+      status,
+      refund_amount: refund,
+    });
+  }
+  out.sort((a, b) => a.return_id - b.return_id);
+  return out;
+}
+
+/**
+ * Clickstream. session_id is the raw cookie/visit id that the front end emitted —
+ * deliberately NOT a clean analytics session: ~1 in 20 events opens a gap larger
+ * than 30 minutes inside the same session_id. A correct answer re-sessionises
+ * with LAG over event_ts instead of trusting session_id.
+ */
+function genWebEvents(R, customers, products) {
+  const events = [];
+  const funnel = ['page_view', 'search', 'product_view', 'add_to_cart', 'checkout_start', 'purchase'];
+  let seq = 0;
+  for (let s = 0; events.length < 30000; s++) {
+    // Multiplying by an odd constant mod 2^32 is a bijection => ids are unique.
+    const sessionId = 'S-' + ((s * 2654435761) % 4294967296).toString(36).toUpperCase();
+    const cust = R.chance(DEFECTS.anonymousEvent) ? null : customers[R.biasedIndex(customers.length, 1.3)];
+    let t = R.int(ORDER_WINDOW[0], ORDER_WINDOW[1]);
+    const n = 1 + Math.floor(Math.pow(R.next(), 1.7) * 14);
+    let stage = 0;
+    for (let e = 0; e < n && events.length < 30000; e++) {
+      const type = funnel[Math.min(stage, funnel.length - 1)];
+      const page = type === 'product_view'
+        ? '/product/' + products[R.biasedIndex(products.length, 1.4)].sku
+        : R.pick(EVENT_PAGES);
+      events.push({ session_id: sessionId, customer_id: cust ? cust.customer_id : null, ts: t, event_type: type, page, seq: seq++ });
+      // Advance the funnel probabilistically; most sessions never reach purchase.
+      if (R.chance(0.42)) stage++;
+      let gap = R.int(5, 600);
+      if (R.chance(0.05)) gap += R.int(1800, 9000);   // the sessionisation trap
+      t += gap * 1000;
+    }
+  }
+  events.sort((a, b) => (a.ts - b.ts) || (a.seq - b.seq));
+  return events;
+}
+
+
+/* ============================================================================
+ * SECTION 6 — CSV serialisation (this is where the data gets broken)
+ *
+ * NULL vs empty string: a bare empty field is NULL to DuckDB; a quoted `""` is
+ * a real empty string. JS `null` -> bare, JS `''` -> `""`. Fields with leading
+ * or trailing whitespace are always quoted so the whitespace survives both
+ * readers byte-for-byte.
+ * ========================================================================== */
+
+function csvField(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (s === '') return '""';
+  if (/[",\r\n]/.test(s) || s !== s.trim()) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+const csvRow = (cells) => cells.map(csvField).join(',');
+
+/**
+ * Defect #2. A "blank" row keeps the right number of commas (so the file stays
+ * parseable) but carries nothing: text columns get whitespace, everything else
+ * is empty. `textCols` is the set of column indexes safe to fill with spaces —
+ * putting spaces in a numeric column would flip its inferred type file-wide.
+ */
+function blankRow(nCols, textCols, R) {
+  const cells = new Array(nCols).fill(null);
+  if (R.chance(0.5)) for (const i of textCols) cells[i] = '   '.slice(0, R.int(1, 3));
+  return csvRow(cells);
+}
+
+/** Injects rows at deterministic positions inside an already-built body array. */
+function injectRows(body, rows, R) {
+  for (const r of rows) body.splice(R.int(1, body.length), 0, r);
+}
+
+/** True when every code unit is ASCII. Written without a regex on purpose:
+ *  a character-class escape here is one bad shell quote away from becoming a
+ *  literal control byte in the source. */
+function isPureAscii(s) {
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) > 127) return false;
+  return true;
+}
+
+function maybeMojibake(name, R) {
+  // Pure-ASCII strings survive the UTF-8 -> Latin-1 round trip unchanged, so
+  // rolling the dice on them would silently dilute the defect rate. Skip them.
+  if (isPureAscii(name)) return name;
+  return R.chance(DEFECTS.mojibake) ? mojibake(name) : name;
+}
+function maybePad(s, R) {
+  if (!R.chance(DEFECTS.nameWhitespace)) return s;
+  return R.chance(0.5) ? '  ' + s : s + '  ';
+}
+
+function serializeSuppliers(suppliers, R) {
+  const body = suppliers.map((s) => csvRow([
+    s.supplier_id,
+    maybePad(maybeMojibake(s.supplier_name, R), R),
+    vCountry(s.country, R),
+  ]));
+  // Near-duplicates: same supplier, different spelling of the same country.
+  for (let i = 0; i < DEFECTS.dupSuppliersNear; i++) {
+    const s = suppliers[R.int(0, suppliers.length - 1)];
+    body.push(csvRow([s.supplier_id, ' ' + s.supplier_name.toUpperCase(), COUNTRY_VARIANTS[s.country][0]]));
+  }
+  return ['supplier_id,supplier_name,country', ...body].join('\n') + '\n';
+}
+
+function serializeProducts(products, R) {
+  const body = [];
+  const emit = (p, nameOverride, costOverride) => csvRow([
+    p.sku,
+    maybePad(maybeMojibake(nameOverride ?? p.product_name, R), R),
+    vCategory(p.category, R),
+    moneyVariant(costOverride ?? p.unit_cost, R),
+    // Defect #8/#9: orphan supplier ids and a literal "N/A" in a numeric column.
+    R.chance(DEFECTS.orphanSupplier)
+      ? R.weighted([[R.int(90, 99), 5], ['N/A', 3], [null, 2]])
+      : p.supplier_id,
+  ]);
+  for (const p of products) body.push(emit(p));
+
+  // Defect #7 — THE trap. Duplicate SKUs drawn from the popular head of the
+  // catalogue, so a naive orders -> order_items -> products join fans out and
+  // inflates revenue. Names/costs differ slightly: these look like sloppy
+  // catalogue re-entry, not obvious garbage.
+  const popular = products.filter((p) => p.popular);
+  const chosen = R.shuffle(popular.slice()).slice(0, DEFECTS.dupProductSkus);
+  for (const p of chosen) {
+    body.push(emit(p, p.product_name + (R.chance(0.5) ? ' (v2)' : ''), Math.round(p.unit_cost * R.float(0.92, 1.18) * 100) / 100));
+  }
+  // Defect #6 — byte-identical duplicate rows.
+  for (let i = 0; i < DEFECTS.dupProductsExact; i++) {
+    body.push(body[R.int(0, products.length - 1)]);
+  }
+  injectRows(body, Array.from({ length: DEFECTS.blankRowsProducts }, () => blankRow(5, [0, 1, 2], R)), R);
+  return ['sku,product_name,category,unit_cost,supplier_id', ...body].join('\n') + '\n';
+}
+
+function serializeCustomers(customers, R) {
+  const emit = (c, opts = {}) => csvRow([
+    c.customer_id,
+    opts.name ?? maybePad(maybeMojibake(c.full_name, R), R),
+    opts.email ?? emailVariant(c.email, R),
+    dateVariant(c.signup_ms, R),
+    opts.country ?? (R.chance(DEFECTS.nullUnknownCountry) ? null : vCountry(c.country, R)),
+    vSegment(c.segment, R),
+    // Defect #8: referrals pointing at customers that no longer exist.
+    c.referred_by === null ? null
+      : (R.chance(DEFECTS.orphanReferrer) ? R.int(8000, 8999) : c.referred_by),
+  ]);
+  const body = customers.map((c) => emit(c));
+
+  // Defect #6a — exact duplicate rows (same bytes).
+  for (let i = 0; i < DEFECTS.dupCustomersExact; i++) {
+    body.push(body[R.int(0, customers.length - 1)]);
+  }
+  // Defect #6b — near-duplicates: same person, different whitespace/casing, so
+  // DISTINCT and drop_duplicates() both miss them until the keys are normalised.
+  for (let i = 0; i < DEFECTS.dupCustomersNear; i++) {
+    const c = customers[R.int(0, customers.length - 1)];
+    body.push(emit(c, {
+      name: '  ' + c.full_name.toUpperCase(),
+      email: ' ' + c.email.toUpperCase(),
+      country: COUNTRY_VARIANTS[c.country][R.int(0, 2)],
+    }));
+  }
+  injectRows(body, Array.from({ length: DEFECTS.blankRowsCustomers }, () => blankRow(7, [1, 2, 4, 5], R)), R);
+  return ['customer_id,full_name,email,signup_date,country,segment,referred_by_customer_id', ...body].join('\n') + '\n';
+}
+
+function emailVariant(email, R) {
+  if (!R.chance(DEFECTS.emailNoise)) return email;
+  return R.weighted([
+    [email.toUpperCase(), 3],
+    [' ' + email, 3],
+    [email + ' ', 3],
+    [email.replace('@', ' @ '), 1],
+  ]);
+}
+
+function serializeOrders(orders, R) {
+  const body = orders.map((o) => csvRow([
+    o.order_id,
+    // Defect #8: orders whose customer was hard-deleted.
+    R.chance(DEFECTS.orphanOrderCustomer) ? R.int(8000, 8999) : o.customer_id,
+    dateVariant(o.order_ms, R),
+    vStatus(o.status, R),
+    vChannel(o.channel, R),
+  ]));
+  injectRows(body, Array.from({ length: DEFECTS.blankRowsOrders }, () => blankRow(5, [2, 3, 4], R)), R);
+  return ['order_id,customer_id,order_date,status,channel', ...body].join('\n') + '\n';
+}
+
+function serializeOrderItems(items, R) {
+  const body = items.map((it) => {
+    // Defect #9 — mixed-type column. Mostly ints, a few textual sentinels, so
+    // pandas infers `object` and DuckDB infers VARCHAR.
+    let qty;
+    if (R.chance(DEFECTS.qtyJunk))          qty = R.weighted([['N/A', 4], ['unknown', 3], ['', 2], ['none', 1]]);
+    else if (R.chance(DEFECTS.qtyNegative)) qty = -it.qty;   // #10 impossible value
+    else                                    qty = it.qty;
+
+    // Defect #5 + #12 — discount written three incompatible ways in one column.
+    let disc;
+    if (it.discount_pct === null) disc = null;               // #1: null means zero
+    else {
+      const r = R.next();
+      if (r < DEFECTS.discountAsPercent)                              disc = Math.round(it.discount_pct * 100) + '%';
+      else if (r < DEFECTS.discountAsPercent + DEFECTS.discountAsWholeNum) disc = String(Math.round(it.discount_pct * 100));
+      else                                                            disc = it.discount_pct.toFixed(2);
+    }
+    return csvRow([
+      it.order_item_id,
+      it.order_id,
+      R.chance(DEFECTS.orphanItemSku) ? 'SKU-9' + String(R.int(100, 999)) : it.sku,
+      qty,
+      moneyVariant(it.unit_price, R),
+      disc,
+    ]);
+  });
+  injectRows(body, Array.from({ length: DEFECTS.blankRowsItems }, () => blankRow(6, [2], R)), R);
+  return ['order_item_id,order_id,sku,qty,unit_price,discount_pct', ...body].join('\n') + '\n';
+}
+
+function serializeReturns(returns, R) {
+  const body = returns.map((r) => csvRow([
+    r.return_id,
+    R.chance(DEFECTS.orphanReturnItem) ? R.int(990000, 999999) : r.order_item_id,
+    dateVariant(r.return_ms, R),
+    vReason(r.reason, R),
+    r.status,
+    r.refund_amount === null ? null : moneyVariant(r.refund_amount, R),
+  ]));
+  // Defect #11b — a UTF-8 BOM glued to the first header cell. DuckDB strips it;
+  // pandas (default utf-8) does not, so `df['return_id']` raises a KeyError
+  // until the reader is told about it. One file only, by design.
+  return '﻿return_id,order_item_id,return_date,reason,status,refund_amount\n'
+    + body.join('\n') + '\n';
+}
+
+function serializeWebEvents(events, R) {
+  const body = events.map((e) => csvRow([
+    e.session_id,
+    // Defect #1 — null here means "logged out", not "missing". Some ids point at
+    // deleted customers, same as orders.
+    e.customer_id === null ? null : (R.chance(0.02) ? R.int(8000, 8999) : e.customer_id),
+    timestampVariant(e.ts, R),
+    vEventType(e.event_type, R),
+    e.page,
+  ]));
+  for (let i = 0; i < DEFECTS.dupEventsExact; i++) {
+    body.push(body[R.int(0, body.length - 1)]);
+  }
+  return ['session_id,customer_id,event_ts,event_type,page', ...body].join('\n') + '\n';
+}
+
+
+/* ============================================================================
+ * SECTION 7 — Dataset assembly
+ *
+ * Single source of truth. `buildDataset()` returns CSV *text*; both DuckDB
+ * (registerFileText) and, from stage 3, Pyodide (FS.writeFile) get handed these
+ * exact strings. Neither engine ever generates its own copy.
+ * ========================================================================== */
+
+const TABLE_NAMES = ['suppliers', 'products', 'customers', 'orders', 'order_items', 'returns', 'web_events'];
+
+function buildDataset(seed = DATA_SEED) {
+  const t0 = performance.now();
+  const R = makeRandom(seed);
+
+  const suppliers  = genSuppliers(R);
+  const products   = genProducts(R, suppliers);
+  const customers  = genCustomers(R);
+  const orders     = genOrders(R, customers);
+  const orderItems = genOrderItems(R, orders, products);
+  const returns    = genReturns(R, orderItems);
+  const webEvents  = genWebEvents(R, customers, products);
+
+  const csv = {
+    suppliers:   serializeSuppliers(suppliers, R),
+    products:    serializeProducts(products, R),
+    customers:   serializeCustomers(customers, R),
+    orders:      serializeOrders(orders, R),
+    order_items: serializeOrderItems(orderItems, R),
+    returns:     serializeReturns(returns, R),
+    web_events:  serializeWebEvents(webEvents, R),
+  };
+
+  let bytes = 0;
+  for (const k of TABLE_NAMES) bytes += csv[k].length;
+  return { csv, bytes, elapsedMs: performance.now() - t0 };
+}
+
+
+/* ============================================================================
+ * SECTION 8 — Data dictionary (the schema the data was SUPPOSED to have)
+ * ========================================================================== */
+
+const DATA_DICTIONARY = [
+  { table: 'suppliers', grain: 'One row per supplier. 40 suppliers.', columns: [
+    ['supplier_id',   'INTEGER',  'Primary key.'],
+    ['supplier_name', 'VARCHAR',  'Legal trading name.'],
+    ['country',       'CHAR(2)',  'ISO 3166-1 alpha-2 country code.'],
+  ]},
+  { table: 'products', grain: 'One row per SKU. 400 SKUs.', columns: [
+    ['sku',         'VARCHAR',       'Primary key. Format SKU-0000.'],
+    ['product_name','VARCHAR',       'Display name.'],
+    ['category',    'VARCHAR',       'One of: Audio, Home, Kitchen, Outdoors, Office, Fitness, Pet, Toys.'],
+    ['unit_cost',   'DECIMAL(10,2)', 'What we pay the supplier, in USD. Always positive.'],
+    ['supplier_id', 'INTEGER',       'FK → suppliers.supplier_id.'],
+  ]},
+  { table: 'customers', grain: 'One row per customer. 2,000 customers.', columns: [
+    ['customer_id',             'INTEGER', 'Primary key.'],
+    ['full_name',               'VARCHAR', 'Given name + family name, UTF-8.'],
+    ['email',                   'VARCHAR', 'Lower-case, unique, no surrounding whitespace.'],
+    ['signup_date',             'DATE',    'Account creation date. Never after the snapshot date.'],
+    ['country',                 'CHAR(2)', 'ISO 3166-1 alpha-2 country code.'],
+    ['segment',                 'VARCHAR', 'One of: Consumer, SMB, Enterprise.'],
+    ['referred_by_customer_id', 'INTEGER', 'FK → customers.customer_id. NULL when organic. Self-join.'],
+  ]},
+  { table: 'orders', grain: 'One row per order. 8,000 orders.', columns: [
+    ['order_id',    'INTEGER', 'Primary key.'],
+    ['customer_id', 'INTEGER', 'FK → customers.customer_id.'],
+    ['order_date',  'DATE',    'Date the order was placed.'],
+    ['status',      'VARCHAR', 'One of: placed, paid, shipped, delivered, cancelled, refunded.'],
+    ['channel',     'VARCHAR', 'One of: web, mobile_app, marketplace, phone.'],
+  ]},
+  { table: 'order_items', grain: 'One row per line item. ~20,000 lines.', columns: [
+    ['order_item_id','INTEGER',       'Primary key.'],
+    ['order_id',     'INTEGER',       'FK → orders.order_id.'],
+    ['sku',          'VARCHAR',       'FK → products.sku.'],
+    ['qty',          'INTEGER',       'Units ordered. Always ≥ 1.'],
+    ['unit_price',   'DECIMAL(10,2)', 'Price charged per unit, in USD, before discount.'],
+    ['discount_pct', 'DECIMAL(4,3)',  'Fraction off, 0.00–1.00. Line total = qty × unit_price × (1 − discount_pct).'],
+  ]},
+  { table: 'returns', grain: 'One row per returned line item. ~900 returns.', columns: [
+    ['return_id',     'INTEGER',       'Primary key.'],
+    ['order_item_id', 'INTEGER',       'FK → order_items.order_item_id.'],
+    ['return_date',   'DATE',          'Date the return was received. Never before the order date.'],
+    ['reason',        'VARCHAR',       'One of: damaged, wrong_item, not_as_described, changed_mind, late_delivery, defective.'],
+    ['status',        'VARCHAR',       'One of: pending, approved, rejected.'],
+    ['refund_amount', 'DECIMAL(10,2)', 'USD refunded. NULL while status = pending. Never exceeds the line total.'],
+  ]},
+  { table: 'web_events', grain: 'One row per clickstream event. ~30,000 events.', columns: [
+    ['session_id',  'VARCHAR',   'Front-end visit id. Not a true analytics session.'],
+    ['customer_id', 'INTEGER',   'FK → customers.customer_id. NULL means the visitor was logged out.'],
+    ['event_ts',    'TIMESTAMP', 'Event time, UTC.'],
+    ['event_type',  'VARCHAR',   'One of: page_view, search, product_view, add_to_cart, checkout_start, purchase.'],
+    ['page',        'VARCHAR',   'Path visited. Product pages embed the SKU.'],
+  ]},
+];
+
+function renderDataDictionary(root) {
+  root.innerHTML = '';
+  const warn = el('div', 'dict-warn');
+  warn.innerHTML = '<strong>This is the contract, not the reality.</strong> Every table below is '
+    + 'described as it was <em>meant</em> to be. The loaded data violates it in a dozen documented '
+    + 'ways. Closing that gap is the exercise. Snapshot date: <code>2025-07-01</code> — anything '
+    + 'dated after that is a bug, not a feature.';
+  root.appendChild(warn);
+
+  for (const t of DATA_DICTIONARY) {
+    const box = el('div', 'dict-table');
+    box.appendChild(el('h3', null, t.table));
+    box.appendChild(el('p', 'grain', t.grain));
+    const table = el('table');
+    table.innerHTML = '<thead><tr><th>Column</th><th>Intended type</th><th>Meaning</th></tr></thead>';
+    const tb = el('tbody');
+    for (const [name, type, desc] of t.columns) {
+      const tr = el('tr');
+      tr.appendChild(el('td', 'c-name', name));
+      tr.appendChild(el('td', 'c-type', type));
+      tr.appendChild(el('td', 'c-desc', desc));
+      tb.appendChild(tr);
+    }
+    table.appendChild(tb);
+    box.appendChild(table);
+    root.appendChild(box);
+  }
+}
+
+
+/* ============================================================================
+ * SECTION 9 — DuckDB runtime
+ *
+ * Boot sequence, with a real error boundary at every step that can realistically
+ * fail behind a CDN or a strict CSP.
+ * ========================================================================== */
+
+class DuckDBRuntime {
+  constructor() {
+    this.db = null;
+    this.conn = null;
+    this.module = null;
+    this.workerUrl = null;
+  }
+
+  /** jsDelivr's `+esm` build is the form DuckDB's own docs use; the raw dist
+   *  ESM entry is kept as a fallback in case the transform breaks. */
+  async loadModule() {
+    const candidates = [
+      `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/+esm`,
+      `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/dist/duckdb-browser.mjs`,
+    ];
+    let lastError = null;
+    for (const url of candidates) {
+      try { return await import(/* webpackIgnore: true */ url); }
+      catch (e) { lastError = e; }
+    }
+    throw new Error(
+      'Could not load @duckdb/duckdb-wasm from jsDelivr.\n' +
+      'Tried:\n  ' + candidates.join('\n  ') + '\n\n' + (lastError && lastError.message)
+    );
+  }
+
+  /**
+   * DuckDB-WASM runs its engine in a Web Worker spawned from a blob: URL,
+   * because the worker script itself is cross-origin. A `worker-src`/`script-src`
+   * CSP without `blob:` kills this. Detect it here and report it plainly rather
+   * than leaving a blank screen.
+   */
+  async spawnWorker(bundle) {
+    const shim = `importScripts(${JSON.stringify(bundle.mainWorker)});`;
+    let url;
+    try {
+      url = URL.createObjectURL(new Blob([shim], { type: 'text/javascript' }));
+      const worker = new Worker(url);
+      this.workerUrl = url;
+      return worker;
+    } catch (e) {
+      if (url) URL.revokeObjectURL(url);
+      // Last resort: same-origin workers only. Will fail cross-origin, but the
+      // error it produces is more informative than the blob one.
+      try { return new Worker(bundle.mainWorker); } catch { /* fall through */ }
+      throw new Error(
+        'The browser refused to start the DuckDB worker.\n\n' +
+        'DuckDB-WASM spawns its engine from a blob: URL. A Content-Security-Policy ' +
+        'that omits `blob:` from worker-src/script-src blocks this, and so does ' +
+        'opening this file over file:// in some browsers.\n\n' +
+        'Serve the page over http(s) — e.g. `python -m http.server` — and allow blob: workers.\n\n' +
+        'Original error: ' + e.message
+      );
+    }
+  }
+
+  async init(onStep) {
+    if (location.protocol === 'file:') {
+      throw new Error(
+        'This page is open over file://, which blocks cross-origin WASM and workers.\n\n' +
+        'Serve the directory instead:\n' +
+        '    python -m http.server 8000\n' +
+        'then open http://localhost:8000/index.html'
+      );
+    }
+    onStep && onStep('module');
+    const duckdb = this.module = await this.loadModule();
+
+    const bundles = duckdb.getJsDelivrBundles();
+    const bundle = await duckdb.selectBundle(bundles);
+
+    const worker = await this.spawnWorker(bundle);
+    const logger = new duckdb.VoidLogger();
+    this.db = new duckdb.AsyncDuckDB(logger, worker);
+    await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    if (this.workerUrl) { URL.revokeObjectURL(this.workerUrl); this.workerUrl = null; }
+    this.conn = await this.db.connect();
+  }
+
+  /**
+   * Registers each CSV as a virtual file and materialises it as a real table.
+   *
+   * Two reader flags carry real weight here:
+   *
+   *  sample_size=-1          Sniff every row before deciding a type. With
+   *                          mixed-type columns ("N/A" among the integers) a
+   *                          sampled sniff picks INTEGER and then blows up
+   *                          15,000 rows in. Full scan => exact, deterministic
+   *                          inference, and the column honestly lands VARCHAR.
+   *
+   *  allow_quoted_nulls=false  DuckDB otherwise folds a quoted "" back into
+   *                          NULL, which would erase the difference between
+   *                          "we have no value" and "we have the empty string".
+   *                          That difference is half the point of this dataset,
+   *                          so the flag stays off.
+   */
+  async installDataset(dataset, onTable) {
+    const counts = {};
+    for (const name of TABLE_NAMES) {
+      const file = `${name}.csv`;
+      // Drop first: re-registering a name that already exists throws.
+      try { await this.db.dropFile(file); } catch { /* not registered yet */ }
+      await this.db.registerFileText(file, dataset.csv[name]);
+      await this.conn.query(`DROP TABLE IF EXISTS "${name}"`);
+      await this.conn.query(
+        `CREATE TABLE "${name}" AS SELECT * FROM read_csv_auto('${file}', ` +
+        `header=true, sample_size=-1, allow_quoted_nulls=false)`
+      );
+      const r = await this.conn.query(`SELECT count(*)::BIGINT AS n FROM "${name}"`);
+      counts[name] = Number(r.getChildAt(0).get(0));
+      onTable && onTable(name, counts[name]);
+    }
+    return counts;
+  }
+
+  /** Column metadata for the sidebar / stage-2 schema browser. */
+  async describeTables() {
+    const out = {};
+    for (const name of TABLE_NAMES) {
+      const r = await this.conn.query(`DESCRIBE "${name}"`);
+      const cols = [];
+      for (let i = 0; i < r.numRows; i++) {
+        cols.push({ name: String(r.getChildAt(0).get(i)), type: String(r.getChildAt(1).get(i)) });
+      }
+      out[name] = cols;
+    }
+    return out;
+  }
+
+  /**
+   * Streams a result back batch by batch. Streaming (rather than conn.query)
+   * buys two things: the main thread yields between batches so the UI keeps
+   * painting, and the query becomes cancellable via cancelSent().
+   */
+  async run(sql, { onProgress } = {}) {
+    const started = performance.now();
+    const reader = await this.conn.send(sql, true);
+    const columns = [];
+    let fields = null;
+    let truncated = false;
+    let rows = 0;
+
+    const takeSchema = (schema) => {
+      fields = schema.fields;
+      for (let i = 0; i < fields.length; i++) columns.push([]);
+    };
+    if (reader.schema) takeSchema(reader.schema);
+
+    for await (const batch of reader) {
+      if (!fields) takeSchema(batch.schema);
+      const room = MAX_RENDER_ROWS - rows;
+      if (room <= 0) { truncated = true; break; }
+      const take = Math.min(batch.numRows, room);
+      for (let c = 0; c < fields.length; c++) {
+        const vec = batch.getChildAt(c);
+        const dst = columns[c];
+        for (let r = 0; r < take; r++) dst.push(vec.get(r));
+      }
+      rows += take;
+      if (take < batch.numRows) { truncated = true; break; }
+      onProgress && onProgress(rows);
+    }
+
+    return {
+      fields: (fields || []).map((f) => ({ name: f.name, type: friendlyType(f.type) })),
+      columns,
+      numRows: rows,
+      truncated,
+      elapsedMs: performance.now() - started,
+    };
+  }
+
+  async cancel() {
+    try { await this.conn.cancelSent(); return true; } catch { return false; }
+  }
+}
+
+/** Arrow type object -> the SQL-ish name a DuckDB user expects to see. */
+function friendlyType(t) {
+  const s = String(t);
+  const map = {
+    Utf8: 'VARCHAR', LargeUtf8: 'VARCHAR', Int64: 'BIGINT', Int32: 'INTEGER',
+    Int16: 'SMALLINT', Int8: 'TINYINT', Uint64: 'UBIGINT', Uint32: 'UINTEGER',
+    Float64: 'DOUBLE', Float32: 'FLOAT', Bool: 'BOOLEAN', Null: 'NULL', Binary: 'BLOB',
+  };
+  if (map[s]) return map[s];
+  if (s.startsWith('Date')) return 'DATE';
+  if (s.startsWith('Timestamp')) return 'TIMESTAMP';
+  if (s.startsWith('Time')) return 'TIME';
+  if (s.startsWith('Decimal')) return 'DECIMAL';
+  if (s.startsWith('Interval')) return 'INTERVAL';
+  if (s.startsWith('List')) return 'LIST';
+  if (s.startsWith('Struct')) return 'STRUCT';
+  if (s.startsWith('Map')) return 'MAP';
+  return s.toUpperCase();
+}
+
+
+/* ============================================================================
+ * SECTION 10 — Cell formatting
+ *
+ * Distinguishing NULL from '' from '   ' is the single most important thing a
+ * grid can do for this dataset, so it happens here, explicitly, per value.
+ * ========================================================================== */
+
+const CELL = { NULL: 0, EMPTY: 1, TEXT: 2, NUMBER: 3 };
+
+function formatCell(v, type) {
+  if (v === null || v === undefined) return { kind: CELL.NULL, text: 'NULL' };
+  if (typeof v === 'bigint')  return { kind: CELL.NUMBER, text: v.toString() };
+  if (typeof v === 'boolean') return { kind: CELL.TEXT, text: v ? 'true' : 'false' };
+  if (typeof v === 'number') {
+    if (type === 'DATE')      return { kind: CELL.TEXT, text: isoDate(v * 86400000) };
+    if (type === 'TIMESTAMP') return { kind: CELL.TEXT, text: isoTimestamp(v) };
+    if (Number.isInteger(v))  return { kind: CELL.NUMBER, text: String(v) };
+    return { kind: CELL.NUMBER, text: trimFloat(v) };
+  }
+  if (v instanceof Date)       return { kind: CELL.TEXT, text: isoTimestamp(v.getTime()) };
+  if (v instanceof Uint8Array) return { kind: CELL.TEXT, text: `\\x${Array.from(v.slice(0, 16)).map((b) => b.toString(16).padStart(2, '0')).join('')}${v.length > 16 ? '…' : ''}` };
+  if (typeof v === 'string') {
+    return v === '' ? { kind: CELL.EMPTY, text: '' } : { kind: CELL.TEXT, text: v };
+  }
+  // DECIMAL arrives as a little-endian Uint32Array; decode it rather than
+  // printing "[object Object]".
+  if (v instanceof Uint32Array) return { kind: CELL.NUMBER, text: decodeDecimal(v, type) };
+  if (typeof v === 'object') {
+    try { return { kind: CELL.TEXT, text: JSON.stringify(v, (k, x) => (typeof x === 'bigint' ? x.toString() : x)) }; }
+    catch { return { kind: CELL.TEXT, text: String(v) }; }
+  }
+  return { kind: CELL.TEXT, text: String(v) };
+}
+
+function trimFloat(n) {
+  if (!Number.isFinite(n)) return String(n);
+  const s = n.toString();
+  return s.length > 17 ? n.toPrecision(15).replace(/\.?0+$/, '') : s;
+}
+
+function decodeDecimal(words) {
+  let v = 0n;
+  for (let i = words.length - 1; i >= 0; i--) v = (v << 32n) | BigInt(words[i] >>> 0);
+  const bits = BigInt(words.length * 32);
+  if (v >> (bits - 1n)) v -= 1n << bits;
+  return v.toString();
+}
+
+/** Renders a cell, marking leading/trailing whitespace so it is actually visible. */
+function paintCell(node, cell) {
+  node.textContent = '';
+  node.classList.toggle('num', cell.kind === CELL.NUMBER);
+  if (cell.kind === CELL.NULL) {
+    const s = el('span', 'nul', 'NULL'); node.appendChild(s); return;
+  }
+  if (cell.kind === CELL.EMPTY) {
+    const s = el('span', 'emp', "''"); node.appendChild(s); return;
+  }
+  const text = cell.text;
+  if (cell.kind === CELL.TEXT && text !== text.trim()) {
+    const lead = text.length - text.trimStart().length;
+    const trail = text.length - text.trimEnd().length;
+    if (lead) node.appendChild(el('span', 'ws', '·'.repeat(lead)));
+    node.appendChild(document.createTextNode(text.slice(lead, text.length - trail)));
+    if (trail) node.appendChild(el('span', 'ws', '·'.repeat(trail)));
+    return;
+  }
+  node.textContent = text;
+}
+
+
+/* ============================================================================
+ * SECTION 11 — Virtualised results grid
+ *
+ * Only the visible window of rows exists in the DOM. 30k rows render as ~40
+ * divs. Sorting reorders an index array, never the data.
+ * ========================================================================== */
+
+const ROW_H = 26;
+const OVERSCAN = 8;
+
+class ResultsGrid {
+  constructor(root) {
+    this.root = root;
+    this.result = null;
+    this.order = null;       // Int32Array of row indexes, or null for natural order
+    this.sortCol = -1;
+    this.sortDir = 0;        // 1 asc, -1 desc, 0 none
+    this.widths = [];
+    this.firstRendered = -1;
+    this.lastRendered = -1;
+    this.measurer = document.createElement('canvas').getContext('2d');
+  }
+
+  clear(message) {
+    this.root.innerHTML = '';
+    this.result = null;
+    const p = el('div', 'placeholder');
+    p.innerHTML = message;
+    this.root.appendChild(p);
+  }
+
+  showError(err) {
+    this.root.innerHTML = '';
+    this.result = null;
+    const box = el('div', 'errbox');
+    box.appendChild(el('h4', null, 'Query failed'));
+    box.appendChild(el('pre', null, (err && err.message) ? err.message : String(err)));
+    this.root.appendChild(box);
+  }
+
+  show(result) {
+    this.result = result;
+    this.order = null;
+    this.sortCol = -1;
+    this.sortDir = 0;
+    this.firstRendered = this.lastRendered = -1;
+
+    if (result.fields.length === 0) {
+      this.clear('Statement executed. No result set returned.');
+      return;
+    }
+
+    this.widths = this.measureColumns(result);
+    this.root.innerHTML = '';
+
+    this.scroll = el('div', 'grid-scroll');
+    this.head = el('div', 'grid-head');
+    this.bodyEl = el('div', 'grid-body');
+    this.rowsEl = el('div', 'grid-rows');
+    this.bodyEl.appendChild(this.rowsEl);
+    this.scroll.appendChild(this.head);
+    this.scroll.appendChild(this.bodyEl);
+    this.root.appendChild(this.scroll);
+    this.root.appendChild(this.buildFooter(result));
+
+    this.buildHeader(result);
+    this.bodyEl.style.height = (result.numRows * ROW_H) + 'px';
+    // Width is left to CSS (`max-content` with `min-width: 100%`): when the
+    // columns are narrower than the viewport the trailing filler cell absorbs
+    // the slack, so rows and hover highlighting span the full width.
+
+    this.scroll.addEventListener('scroll', () => this.renderWindow(), { passive: true });
+    this.resizeObserver = this.resizeObserver || new ResizeObserver(() => this.renderWindow());
+    this.resizeObserver.disconnect();
+    this.resizeObserver.observe(this.root);
+    this.renderWindow(true);
+  }
+
+  /** Sizes columns from the header plus a sample of the data. */
+  measureColumns(result) {
+    this.measurer.font = '11.5px ui-monospace, Menlo, Consolas, monospace';
+    const sampleN = Math.min(result.numRows, 150);
+    const widths = [Math.max(46, this.measurer.measureText(String(result.numRows)).width + 20)];
+    for (let c = 0; c < result.fields.length; c++) {
+      const f = result.fields[c];
+      let w = Math.max(
+        this.measurer.measureText(f.name).width * 1.08,
+        this.measurer.measureText(f.type).width * 0.85
+      );
+      const col = result.columns[c];
+      for (let i = 0; i < sampleN; i++) {
+        const cell = formatCell(col[i], f.type);
+        const t = cell.kind === CELL.NULL ? 'NULL' : cell.kind === CELL.EMPTY ? "''" : cell.text;
+        const m = this.measurer.measureText(t.length > 60 ? t.slice(0, 60) : t).width;
+        if (m > w) w = m;
+      }
+      widths.push(Math.max(70, Math.min(420, Math.ceil(w) + 22)));
+    }
+    return widths;
+  }
+
+  buildHeader(result) {
+    this.head.innerHTML = '';
+    const rn = el('div', 'gh rownum');
+    rn.style.width = this.widths[0] + 'px';
+    rn.appendChild(el('div', 'n', '#'));
+    this.head.appendChild(rn);
+
+    result.fields.forEach((f, i) => {
+      const h = el('div', 'gh');
+      h.style.width = this.widths[i + 1] + 'px';
+      h.title = `${f.name} — ${f.type}  (click to sort)`;
+      const n = el('div', 'n');
+      n.appendChild(document.createTextNode(f.name));
+      const arrow = el('span', 'arrow', '');
+      n.appendChild(arrow);
+      h.appendChild(n);
+      h.appendChild(el('div', 't', f.type));
+      h.addEventListener('click', () => this.toggleSort(i));
+      this.head.appendChild(h);
+    });
+    this.head.appendChild(el('div', 'gh filler'));
+    this.paintSortArrows();
+  }
+
+  paintSortArrows() {
+    const cells = this.head.querySelectorAll('.gh:not(.rownum):not(.filler) .arrow');
+    cells.forEach((a, i) => {
+      a.textContent = (i === this.sortCol) ? (this.sortDir === 1 ? '  ▲' : '  ▼') : '';
+    });
+  }
+
+  /** asc → desc → natural. */
+  toggleSort(col) {
+    if (this.sortCol === col) {
+      this.sortDir = this.sortDir === 1 ? -1 : 0;
+      if (this.sortDir === 0) this.sortCol = -1;
+    } else {
+      this.sortCol = col;
+      this.sortDir = 1;
+    }
+    this.order = this.sortCol < 0 ? null : this.computeOrder(this.sortCol, this.sortDir);
+    this.paintSortArrows();
+    this.firstRendered = this.lastRendered = -1;
+    this.renderWindow(true);
+  }
+
+  computeOrder(col, dir) {
+    const n = this.result.numRows;
+    const data = this.result.columns[col];
+    const idx = new Int32Array(n);
+    for (let i = 0; i < n; i++) idx[i] = i;
+    // Nulls always sort last, regardless of direction — they are noise here.
+    const rank = (v) => (v === null || v === undefined ? 1 : 0);
+    const arr = Array.from(idx);
+    arr.sort((a, b) => {
+      const va = data[a], vb = data[b];
+      const ra = rank(va), rb = rank(vb);
+      if (ra !== rb) return ra - rb;
+      if (ra === 1) return a - b;
+      let c;
+      if (typeof va === 'bigint' && typeof vb === 'bigint') c = va < vb ? -1 : va > vb ? 1 : 0;
+      else if (typeof va === 'number' && typeof vb === 'number') c = va - vb;
+      else c = String(va) < String(vb) ? -1 : String(va) > String(vb) ? 1 : 0;
+      return c === 0 ? a - b : c * dir;
+    });
+    return Int32Array.from(arr);
+  }
+
+  renderWindow(force) {
+    if (!this.result) return;
+    const scrollTop = this.scroll.scrollTop;
+    const viewH = this.scroll.clientHeight;
+    const headH = this.head.offsetHeight;
+    const start = Math.max(0, Math.floor((scrollTop - headH) / ROW_H) - OVERSCAN);
+    const visible = Math.ceil(viewH / ROW_H) + OVERSCAN * 2;
+    const end = Math.min(this.result.numRows, start + visible);
+    if (!force && start === this.firstRendered && end === this.lastRendered) return;
+    this.firstRendered = start;
+    this.lastRendered = end;
+
+    const frag = document.createDocumentFragment();
+    const { fields, columns } = this.result;
+    for (let r = start; r < end; r++) {
+      const src = this.order ? this.order[r] : r;
+      const row = el('div', 'gr' + (r % 2 ? ' odd' : ''));
+      const rn = el('div', 'gc rownum', String(r + 1));
+      rn.style.width = this.widths[0] + 'px';
+      row.appendChild(rn);
+      for (let c = 0; c < fields.length; c++) {
+        const cellNode = el('div', 'gc');
+        cellNode.style.width = this.widths[c + 1] + 'px';
+        const cell = formatCell(columns[c][src], fields[c].type);
+        paintCell(cellNode, cell);
+        if (cell.kind === CELL.TEXT && cell.text.length > 40) cellNode.title = cell.text;
+        row.appendChild(cellNode);
+      }
+      row.appendChild(el('div', 'gc filler'));
+      frag.appendChild(row);
+    }
+    this.rowsEl.innerHTML = '';
+    this.rowsEl.appendChild(frag);
+    this.rowsEl.style.transform = `translateY(${start * ROW_H}px)`;
+  }
+
+  buildFooter(result) {
+    const foot = el('div', 'grid-foot');
+    const rows = result.numRows.toLocaleString('en-US');
+    foot.appendChild(el('span', null, `${rows} row${result.numRows === 1 ? '' : 's'}`));
+    foot.appendChild(el('span', null, `${result.fields.length} cols`));
+    foot.appendChild(el('span', null, `${result.elapsedMs.toFixed(1)} ms`));
+    if (result.truncated) {
+      const t = el('span', null, `truncated at ${MAX_RENDER_ROWS.toLocaleString('en-US')}`);
+      t.style.color = 'var(--warn)';
+      foot.appendChild(t);
+    }
+    const legend = el('div', 'legend');
+    legend.innerHTML = '<span><i style="color:var(--null)">NULL</i> = null</span>'
+      + '<span><i>\'\'</i> = empty string</span>'
+      + '<span><i style="color:var(--ws)">·</i> = whitespace</span>';
+    foot.appendChild(legend);
+    return foot;
+  }
+}
+
+
+/* ============================================================================
+ * SECTION 12 — Editor (Monaco, with a plain-textarea fallback)
+ *
+ * Monaco is loaded through its AMD loader and its worker is proxied through a
+ * blob so the cross-origin CDN works. If any of that fails the app degrades to
+ * a textarea rather than dying — the point of the page is the data, not the IDE.
+ * ========================================================================== */
+
+function createEditor(container, { language, value, onRun, theme }) {
+  return new Promise((resolve) => {
+    const fallback = () => {
+      const ta = el('textarea', 'fallback');
+      ta.value = value;
+      ta.spellcheck = false;
+      container.appendChild(ta);
+      ta.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); onRun(); }
+      });
+      resolve({
+        kind: 'textarea',
+        getValue: () => ta.value,
+        getSelection: () => ta.value.substring(ta.selectionStart, ta.selectionEnd),
+        setValue: (v) => { ta.value = v; },
+        focus: () => ta.focus(),
+        layout: () => {},
+        setTheme: () => {},
+      });
+    };
+
+    if (typeof window.require !== 'function') { fallback(); return; }
+    try {
+      window.require.config({ paths: { vs: MONACO_BASE + 'vs' } });
+      // Cross-origin AMD workers need this shim; without it Monaco silently
+      // falls back to running language services on the main thread.
+      window.MonacoEnvironment = {
+        getWorkerUrl: () => {
+          const src = `self.MonacoEnvironment={baseUrl:${JSON.stringify(MONACO_BASE)}};`
+                    + `importScripts(${JSON.stringify(MONACO_BASE + 'vs/base/worker/workerMain.js')});`;
+          return URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+        },
+      };
+      window.require(['vs/editor/editor.main'], () => {
+        try {
+          const monaco = window.monaco;
+          const ed = monaco.editor.create(container, {
+            value, language,
+            theme: theme === 'light' ? 'vs' : 'vs-dark',
+            automaticLayout: false,
+            minimap: { enabled: false },
+            fontSize: 13,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            lineNumbersMinChars: 3,
+            scrollBeyondLastLine: false,
+            renderLineHighlight: 'line',
+            tabSize: 2,
+            padding: { top: 8, bottom: 8 },
+            scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+          });
+          ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
+          resolve({
+            kind: 'monaco',
+            getValue: () => ed.getValue(),
+            getSelection: () => ed.getModel().getValueInRange(ed.getSelection()),
+            setValue: (v) => ed.setValue(v),
+            focus: () => ed.focus(),
+            layout: () => ed.layout(),
+            setTheme: (t) => monaco.editor.setTheme(t === 'light' ? 'vs' : 'vs-dark'),
+          });
+        } catch { fallback(); }
+      }, () => fallback());
+    } catch { fallback(); }
+  });
+}
+
+
+/* ============================================================================
+ * SECTION 13 — Application wiring
+ * ========================================================================== */
+
+const STARTER_SQL = `-- The data is deliberately dirty. Start by looking at the damage.
+-- Ctrl/Cmd+Enter runs the editor contents, or just the selected text.
+
+SELECT status, count(*) AS n
+FROM orders
+GROUP BY status
+ORDER BY n DESC;
+
+-- Six statuses were promised. Count what you actually got, then try:
+--   SELECT sku, count(*) FROM products GROUP BY sku HAVING count(*) > 1;
+-- ...and think about what that does to a revenue join.`;
+
+const App = {
+  runtime: new DuckDBRuntime(),
+  editor: null,
+  grid: null,
+  dataset: null,
+  counts: {},
+  schema: {},
+  running: false,
+  timerHandle: null,
+};
+
+function setStep(id, state, extra) {
+  const li = document.getElementById('step-' + id);
+  if (!li) return;
+  li.className = state;
+  li.querySelector('.mark').textContent = state === 'ok' ? '✓' : state === 'fail' ? '✗' : state === 'active' ? '›' : '·';
+  if (extra) {
+    let note = li.querySelector('.note');
+    if (!note) { note = el('span', 'note'); note.style.color = 'var(--text-faint)'; li.appendChild(note); }
+    note.textContent = ' ' + extra;
+  }
+}
+
+function bootFail(err) {
+  const box = $('#boot-err');
+  box.textContent = (err && err.message) ? err.message : String(err);
+  box.classList.add('show');
+  console.error(err);
+}
+
+function renderSidebar() {
+  const root = $('#side-tables');
+  root.innerHTML = '';
+  let total = 0;
+  for (const name of TABLE_NAMES) {
+    const n = App.counts[name] || 0;
+    total += n;
+    const btn = el('button', 'table-row');
+    btn.appendChild(el('span', 'nm', name));
+    btn.appendChild(el('span', 'ct', n.toLocaleString('en-US')));
+    const cols = App.schema[name];
+    if (cols) btn.title = cols.map((c) => `${c.name}  ${c.type}`).join('\n');
+    btn.addEventListener('click', () => {
+      App.editor.setValue(`SELECT *\nFROM ${name}\nLIMIT 200;`);
+      App.editor.focus();
+      runQuery();
+    });
+    root.appendChild(btn);
+  }
+  $('#side-rowtotal').textContent = total.toLocaleString('en-US');
+}
+
+function setStatus(html, cls) {
+  const s = $('#status');
+  s.innerHTML = html;
+  s.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+async function runQuery() {
+  if (App.running || !App.editor) return;
+  const selected = App.editor.getSelection();
+  const sql = (selected && selected.trim()) ? selected : App.editor.getValue();
+  if (!sql.trim()) return;
+
+  App.running = true;
+  $('#btn-run').disabled = true;
+  $('#btn-cancel').style.display = '';
+  const t0 = performance.now();
+  const tick = () => setStatus(`<span class="spinner"></span> running… ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+  tick();
+  App.timerHandle = setInterval(tick, 100);
+
+  try {
+    const result = await App.runtime.run(sql);
+    App.grid.show(result);
+    setStatus(`<span class="ok">✓</span> ${result.numRows.toLocaleString('en-US')} rows in ${result.elapsedMs.toFixed(0)} ms`);
+  } catch (err) {
+    App.grid.showError(err);
+    // A cancelled query surfaces as an engine error; label it honestly rather
+    // than letting it read as a query the user got wrong.
+    const cancelled = /cancel/i.test((err && err.message) || '');
+    setStatus(`<span class="err">✗</span> ${cancelled ? 'cancelled' : 'error'}`, 'err');
+  } finally {
+    clearInterval(App.timerHandle);
+    App.running = false;
+    $('#btn-run').disabled = false;
+    $('#btn-cancel').style.display = 'none';
+  }
+}
+
+async function resetData() {
+  if (App.running) return;
+  const btn = $('#btn-reset');
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span> rebuilding tables…');
+  try {
+    // Regenerating from the same seed is cheap and guarantees byte-identical
+    // data even if the user mutated or dropped a table.
+    App.dataset = buildDataset(DATA_SEED);
+    App.counts = await App.runtime.installDataset(App.dataset);
+    App.schema = await App.runtime.describeTables();
+    renderSidebar();
+    setStatus('<span class="ok">✓</span> all tables restored');
+  } catch (err) {
+    App.grid.showError(err);
+    setStatus('<span class="err">✗</span> reset failed', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  prefSet('theme', theme);
+  if (App.editor) App.editor.setTheme(theme);
+}
+
+function initSplitter() {
+  const splitter = $('#splitter');
+  const wrap = $('#editor-wrap');
+  let dragging = false;
+  const onMove = (e) => {
+    if (!dragging) return;
+    const top = wrap.getBoundingClientRect().top;
+    const h = Math.max(80, Math.min(window.innerHeight - 220, e.clientY - top));
+    wrap.style.flex = `0 0 ${h}px`;
+    App.editor && App.editor.layout();
+  };
+  splitter.addEventListener('mousedown', (e) => {
+    dragging = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    prefSet('editorHeight', wrap.getBoundingClientRect().height);
+  });
+  const saved = parseFloat(prefGet('editorHeight', ''));
+  if (saved > 80) wrap.style.flex = `0 0 ${saved}px`;
+}
+
+function initChrome() {
+  applyTheme(prefGet('theme', 'dark'));
+  $('#btn-theme').addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  const sidebar = $('#sidebar');
+  if (prefGet('sidebar', 'open') === 'closed') sidebar.classList.add('collapsed');
+  $('#btn-sidebar').addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+    prefSet('sidebar', sidebar.classList.contains('collapsed') ? 'closed' : 'open');
+    App.editor && App.editor.layout();
+  });
+
+  const modal = $('#dict-modal');
+  renderDataDictionary($('#dict-body'));
+  $('#btn-dict').addEventListener('click', () => modal.classList.add('open'));
+  $('#btn-dict-close').addEventListener('click', () => modal.classList.remove('open'));
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
+
+  $('#btn-run').addEventListener('click', runQuery);
+  $('#btn-cancel').addEventListener('click', async () => {
+    const ok = await App.runtime.cancel();
+    setStatus(ok ? '<span class="err">✗</span> cancelled' : '<span class="err">✗</span> cancel not supported', 'err');
+  });
+  $('#btn-reset').addEventListener('click', resetData);
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') modal.classList.remove('open');
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      $('#btn-sidebar').click();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runQuery(); }
+  });
+
+  window.addEventListener('resize', () => App.editor && App.editor.layout());
+  initSplitter();
+}
+
+async function main() {
+  initChrome();
+  App.grid = new ResultsGrid($('#results'));
+
+  try {
+    // --- 1. data ------------------------------------------------------------
+    setStep('gen', 'active');
+    await new Promise((r) => setTimeout(r, 0));     // let the overlay paint first
+    App.dataset = buildDataset(DATA_SEED);
+    setStep('gen', 'ok', `${(App.dataset.bytes / 1048576).toFixed(1)} MB in ${App.dataset.elapsedMs.toFixed(0)} ms`);
+
+    // --- 2. engine ----------------------------------------------------------
+    setStep('wasm', 'active');
+    await App.runtime.init();
+    setStep('wasm', 'ok', `v${DUCKDB_VERSION}`);
+
+    // --- 3. tables ----------------------------------------------------------
+    setStep('load', 'active');
+    App.counts = await App.runtime.installDataset(App.dataset, (name) => setStep('load', 'active', name));
+    App.schema = await App.runtime.describeTables();
+    setStep('load', 'ok', TABLE_NAMES.length + ' tables');
+    renderSidebar();
+
+    // --- 4. editor ----------------------------------------------------------
+    setStep('ui', 'active');
+    App.editor = await createEditor($('#editor'), {
+      language: 'sql',
+      value: STARTER_SQL,
+      onRun: runQuery,
+      theme: document.documentElement.getAttribute('data-theme'),
+    });
+    setStep('ui', 'ok', App.editor.kind === 'monaco' ? 'Monaco' : 'plain textarea (Monaco unavailable)');
+
+    $('#boot').classList.add('done');
+    App.editor.layout();
+    App.editor.focus();
+    setStatus('ready — Ctrl/Cmd+Enter to run');
+  } catch (err) {
+    for (const id of ['gen', 'wasm', 'load', 'ui']) {
+      const li = document.getElementById('step-' + id);
+      if (li && li.className === 'active') setStep(id, 'fail');
+    }
+    bootFail(err);
+  }
+}
+
+main();
+</script>
+</body>
+</html>
