@@ -145,7 +145,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .panel.active { display: flex; }
 
 .editor-wrap { position: relative; min-height: 80px; }
-#editor { position: absolute; inset: 0; }
+#editor, #py-editor { position: absolute; inset: 0; }
 #editor textarea.fallback {
   width: 100%; height: 100%; border: 0; resize: none; outline: none;
   background: var(--bg-sunken); color: var(--text);
@@ -292,6 +292,44 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .dict-table td.c-type { font-family: var(--mono); color: var(--text-faint); white-space: nowrap; }
 .dict-table td.c-desc { color: var(--text-dim); line-height: 1.5; }
 
+/* ---- pandas panel ------------------------------------------------------- */
+.preload-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 7px 10px; background: var(--bg-raised); border-bottom: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-faint); flex: 0 0 auto;
+}
+.preload-bar .lbl { color: var(--text-dim); margin-right: 2px; }
+.pill-var {
+  font-family: var(--mono); font-size: 11px; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 4px; padding: 1px 6px;
+}
+
+.py-boot { padding: 32px; color: var(--text-dim); max-width: 520px; }
+.py-boot h3 { margin: 0 0 4px; font-size: 14px; color: var(--text); }
+.py-boot p { margin: 0 0 16px; line-height: 1.6; font-size: 12.5px; }
+.py-boot .boot-steps { font-size: 12px; }
+.py-boot .pkg-line { margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+
+.console-wrap {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  border-top: 1px solid var(--border); background: var(--bg-sunken);
+  max-height: 160px; min-height: 34px;
+}
+.console-head {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em;
+  flex: 0 0 auto; background: var(--bg-raised);
+}
+.console-head .btn { padding: 2px 8px; font-size: 11px; }
+.console-body {
+  overflow-y: auto; padding: 4px 10px 8px; font-family: var(--mono); font-size: 12px;
+  line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+}
+.console-body .empty { color: var(--text-faint); font-style: italic; }
+.console-line.stderr { color: var(--bad); }
+
 @media (max-width: 860px) {
   #sidebar { position: absolute; z-index: 20; height: calc(100% - 44px); top: 44px; box-shadow: 0 0 40px rgba(0,0,0,0.5); }
   #sidebar.collapsed { box-shadow: none; }
@@ -306,7 +344,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     <div class="brand"><span class="dot"></span> Dirty Data Sandbox <small>SQL &amp; pandas on messy data</small></div>
     <nav class="tabs" role="tablist">
       <button class="tab" id="tab-sql" role="tab" aria-selected="true">SQL <span class="pill">DuckDB</span></button>
-      <button class="tab" id="tab-py" role="tab" aria-selected="false" disabled title="Arrives in stage 3">pandas <span class="pill">stage 3</span></button>
+      <button class="tab" id="tab-py" role="tab" aria-selected="false">pandas <span class="pill">Pyodide</span></button>
     </nav>
     <div class="spacer"></div>
     <button class="btn" id="btn-dict">Data dictionary</button>
@@ -319,7 +357,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
       <div class="side-head"><span>Tables</span><span id="side-rowtotal"></span></div>
       <div class="side-scroll" id="side-tables"></div>
       <div class="side-note">
-        Click a table to draft a <code>SELECT</code>.<br>
+        Click a table to draft a query in whichever tab is open.<br>
         Full schema browser and the task list land in stage&nbsp;2.
       </div>
     </aside>
@@ -346,6 +384,49 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
             things. The <strong>Data dictionary</strong> describes what it was <em>supposed</em>
             to look like.
           </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-py">
+        <div class="preload-bar" id="py-preload-bar">
+          <span class="lbl">pre-loaded:</span>
+          <span class="pill-var">pd</span><span class="pill-var">np</span>
+        </div>
+        <div class="editor-wrap" id="py-editor-wrap" style="flex: 0 0 240px;">
+          <div id="py-editor"></div>
+        </div>
+        <div class="splitter" id="py-splitter"></div>
+        <div class="runbar">
+          <button class="btn primary" id="py-btn-run" disabled>Run ▸<kbd>Ctrl ⏎</kbd></button>
+          <button class="btn" id="py-btn-stop" style="display:none" title="Terminates the Python session and reloads it — variables are lost">Stop</button>
+          <div class="status" id="py-status"></div>
+          <div class="spacer"></div>
+          <div class="hint">Select text to run only the selection</div>
+        </div>
+        <div id="py-results">
+          <div class="py-boot" id="py-boot-panel">
+            <h3>Starting the Python runtime</h3>
+            <p>
+              Pyodide (CPython compiled to WebAssembly) plus pandas and numpy —
+              about 10&nbsp;MB, cached by the browser after the first visit.
+              The SQL tab keeps working normally while this loads.
+            </p>
+            <ul class="boot-steps">
+              <li id="py-step-runtime"><span class="mark">·</span><span>Loading the Python runtime</span></li>
+              <li id="py-step-packages"><span class="mark">·</span><span>Installing pandas &amp; numpy</span></li>
+              <li id="py-step-tables"><span class="mark">·</span><span>Reading tables into DataFrames</span></li>
+            </ul>
+            <div class="pkg-line" id="py-pkg-line"></div>
+            <div class="boot-err" id="py-boot-err"></div>
+          </div>
+        </div>
+        <div class="console-wrap">
+          <div class="console-head">
+            <span>Console (print output)</span>
+            <div class="spacer"></div>
+            <button class="btn" id="py-console-clear">Clear</button>
+          </div>
+          <div class="console-body" id="py-console-body"><span class="empty">Nothing printed yet.</span></div>
         </div>
       </section>
     </main>
@@ -398,6 +479,13 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
  * ========================================================================== */
 
 const DUCKDB_VERSION = '1.29.0';          // pinned; never @latest
+// Pyodide's npm mirror on jsDelivr (@npm/pyodide@x.y.z) ships only the core
+// runtime (pyodide.js/.asm.wasm) — it does NOT include the package wheels, so
+// `loadPackage(['pandas'])` 404s from there. The full distribution, wheels
+// included, lives under jsDelivr's separate /pyodide/ GitHub-release mirror.
+// Confirmed by hitting both paths directly before wiring this up.
+const PYODIDE_VERSION = '0.27.8';         // pinned; never @latest
+const PYODIDE_BASE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 const MONACO_BASE    = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/';
 const DATA_SEED      = 8675309;           // fixed => every visitor sees identical bytes
 const MAX_RENDER_ROWS = 200000;           // hard cap on materialised result rows
@@ -1152,9 +1240,12 @@ function serializeReturns(returns, R) {
     r.status,
     r.refund_amount === null ? null : moneyVariant(r.refund_amount, R),
   ]));
-  // Defect #11b — a UTF-8 BOM glued to the first header cell. DuckDB strips it;
-  // pandas (default utf-8) does not, so `df['return_id']` raises a KeyError
-  // until the reader is told about it. One file only, by design.
+  // Defect #11b — a UTF-8 BOM glued to the first header cell. Both DuckDB's
+  // read_csv_auto and pandas 2.x's default C parser sniff and strip it, so it
+  // is invisible through this app's normal reader paths — verified, not
+  // assumed. It stays in the file anyway as a realistic artifact: a plain
+  // `open(path, 'rb').read(3)` (or the python engine / any less-forgiving
+  // reader) still turns it up. One file only, by design.
   return '﻿return_id,order_item_id,return_date,reason,status,refund_amount\n'
     + body.join('\n') + '\n';
 }
@@ -1508,6 +1599,241 @@ function friendlyType(t) {
 
 
 /* ============================================================================
+ * SECTION 9B — Pyodide runtime (pandas)
+ *
+ * Loaded lazily: nothing here runs until the user opens the pandas tab, so
+ * the SQL tab stays usable while this — a ~10MB download plus package
+ * install — happens in the background.
+ *
+ * Runs inside its own Web Worker, spawned from a blob: URL for the same CSP
+ * reason as the DuckDB worker (SECTION 9). The worker never receives Python
+ * source embedded in its own JS text: code is always passed through
+ * postMessage as data, so nothing needs escaping and there is no nested-
+ * template-literal mess to maintain.
+ * ========================================================================== */
+
+/**
+ * Builds the Python bootstrap script run once at worker init (and again on
+ * "Reset data"): imports pandas/numpy, reads every table from the CSVs
+ * DuckDB was also fed, and defines the small run/serialise harness that lets
+ * `PyodideRuntime.run()` treat arbitrary user code like a notebook cell.
+ *
+ * `__sandbox_run` re-implements Jupyter's "value of the last expression is
+ * the result" behaviour by hand (split the AST, exec everything but the last
+ * node, eval that node if it's an expression) rather than relying on
+ * `pyodide.runPython`'s own version of this, because we need the *value* in
+ * Python to route it through `__sandbox_to_result` before it ever crosses
+ * into JS — a raw DataFrame handed across the PyProxy boundary is not
+ * something we want to introspect from the JS side.
+ */
+function buildPyPreload() {
+  const reads = TABLE_NAMES.map((t) => `${t} = pd.read_csv('/data/${t}.csv')`).join('\n');
+  return [
+    'import pandas as pd, numpy as np, ast, json',
+    '',
+    '# NULL/NaN/NaT all collapse to JSON null; numpy scalar types are unwrapped',
+    '# to plain Python so json.dumps does not choke on them.',
+    'def __sandbox_cell(v):',
+    '    if v is None:',
+    '        return None',
+    '    try:',
+    '        if pd.isna(v):',
+    '            return None',
+    '    except (TypeError, ValueError):',
+    '        pass  # arrays / containers: not NA-checkable, fall through as-is',
+    '    if isinstance(v, np.integer):',
+    '        return int(v)',
+    '    if isinstance(v, np.floating):',
+    '        return float(v)',
+    '    if isinstance(v, np.bool_):',
+    '        return bool(v)',
+    '    if hasattr(v, "isoformat"):',
+    '        return v.isoformat()',
+    '    if isinstance(v, (bytes, bytearray)):',
+    '        return v.hex()',
+    '    return v',
+    '',
+    '# Same unwrapping for the text-fallback path, so `orders.qty.sum()` prints',
+    '# "412", not "np.int64(412)".',
+    'def __sandbox_scalar(v):',
+    '    if isinstance(v, (np.integer, np.floating, np.bool_)):',
+    '        return v.item()',
+    '    return v',
+    '',
+    'def __sandbox_to_result(value):',
+    '    if isinstance(value, pd.Series):',
+    '        value = value.rename(value.name if value.name is not None else "value").reset_index()',
+    '    if isinstance(value, pd.DataFrame):',
+    '        df = value',
+    '        fields = [{"name": str(c), "type": str(df[c].dtype)} for c in df.columns]',
+    '        columns = [[__sandbox_cell(v) for v in df[c].tolist()] for c in df.columns]',
+    '        return {"kind": "frame", "fields": fields, "columns": columns, "numRows": len(df)}',
+    '    if value is None:',
+    '        return {"kind": "none"}',
+    '    return {"kind": "text", "text": repr(__sandbox_scalar(value))}',
+    '',
+    'def __sandbox_run(source):',
+    '    import __main__',
+    '    ns = __main__.__dict__  # the same namespace pyodide.globals exposes,',
+    '                            # so pre-loaded tables and prior-run variables are visible',
+    '    tree = ast.parse(source, mode="exec")',
+    '    body = tree.body',
+    '    last_expr = None',
+    '    if body and isinstance(body[-1], ast.Expr):',
+    '        last_expr = ast.Expression(body[-1].value)',
+    '        body = body[:-1]',
+    '    exec_tree = ast.Module(body=body, type_ignores=[])',
+    '    ast.fix_missing_locations(exec_tree)',
+    '    exec(compile(exec_tree, "<sandbox>", "exec"), ns)',
+    '    value = None',
+    '    if last_expr is not None:',
+    '        ast.fix_missing_locations(last_expr)',
+    '        value = eval(compile(last_expr, "<sandbox>", "eval"), ns)',
+    '    return json.dumps(__sandbox_to_result(value))',
+    '',
+    reads,
+    '',
+  ].join('\n');
+}
+
+class PyodideRuntime {
+  constructor() {
+    this.worker = null;
+    this.workerUrl = null;
+    this.ready = false;
+    this.pending = new Map();   // run id -> {resolve, reject}
+    this.nextId = 1;
+    this.onStdout = null;       // (text, isError) => void, set by the caller
+  }
+
+  /** Same blob-worker CSP story as DuckDB (SECTION 9); same fallback error. */
+  spawnWorker() {
+    const shim = `
+      importScripts(${JSON.stringify(PYODIDE_BASE + 'pyodide.js')});
+      let pyodide = null;
+
+      self.onmessage = async (ev) => {
+        const msg = ev.data;
+        try {
+          if (msg.type === 'init') {
+            pyodide = await loadPyodide({ indexURL: ${JSON.stringify(PYODIDE_BASE)} });
+            self.postMessage({ type: 'progress', step: 'runtime' });
+            pyodide.setStdout({ batched: (text) => self.postMessage({ type: 'stdout', text }) });
+            pyodide.setStderr({ batched: (text) => self.postMessage({ type: 'stderr', text }) });
+            await pyodide.loadPackage(['pandas', 'numpy'], {
+              messageCallback: (text) => self.postMessage({ type: 'pkg-msg', text }),
+            });
+            self.postMessage({ type: 'progress', step: 'packages' });
+            pyodide.FS.mkdir('/data');
+            for (const name in msg.csv) pyodide.FS.writeFile('/data/' + name + '.csv', msg.csv[name]);
+            await pyodide.runPythonAsync(msg.preload);
+            self.postMessage({ type: 'progress', step: 'tables' });
+            self.postMessage({ type: 'ready' });
+          } else if (msg.type === 'run') {
+            pyodide.globals.set('__sandbox_src', msg.code);
+            const json = await pyodide.runPythonAsync('__sandbox_run(__sandbox_src)');
+            self.postMessage({ type: 'result', id: msg.id, json });
+          } else if (msg.type === 'reload-tables') {
+            for (const name in msg.csv) pyodide.FS.writeFile('/data/' + name + '.csv', msg.csv[name]);
+            await pyodide.runPythonAsync(msg.preload);
+            self.postMessage({ type: 'reloaded', id: msg.id });
+          }
+        } catch (err) {
+          self.postMessage({ type: 'error', id: msg.id, message: (err && err.message) ? err.message : String(err) });
+        }
+      };
+    `;
+    let url;
+    try {
+      url = URL.createObjectURL(new Blob([shim], { type: 'text/javascript' }));
+      const worker = new Worker(url);
+      this.workerUrl = url;
+      return worker;
+    } catch (e) {
+      if (url) URL.revokeObjectURL(url);
+      throw new Error(
+        'The browser refused to start the Python worker.\n\n' +
+        'Pyodide runs inside a Web Worker spawned from a blob: URL, the same ' +
+        'way DuckDB does. A Content-Security-Policy that omits blob: from ' +
+        'worker-src/script-src blocks this.\n\n' +
+        'Original error: ' + e.message
+      );
+    }
+  }
+
+  /** Boots a fresh worker, loads pandas/numpy, and pre-loads every table. */
+  init(dataset, { onProgress, onPkgMsg, onStdout } = {}) {
+    if (this.worker) { this.worker.terminate(); this.worker = null; }   // retry safety
+    this.onStdout = onStdout || null;
+    this.worker = this.spawnWorker();
+    return new Promise((resolve, reject) => {
+      this.worker.onmessage = (ev) => {
+        const msg = ev.data;
+        if (msg.type === 'progress') { onProgress && onProgress(msg.step); return; }
+        if (msg.type === 'pkg-msg') { onPkgMsg && onPkgMsg(msg.text); return; }
+        if (msg.type === 'stdout') { this.onStdout && this.onStdout(msg.text, false); return; }
+        if (msg.type === 'stderr') { this.onStdout && this.onStdout(msg.text, true); return; }
+        if (msg.type === 'ready') {
+          if (this.workerUrl) { URL.revokeObjectURL(this.workerUrl); this.workerUrl = null; }
+          this.ready = true;
+          this.worker.onmessage = (ev2) => this.dispatch(ev2.data);
+          resolve();
+          return;
+        }
+        if (msg.type === 'error') { reject(new Error(msg.message)); }
+      };
+      this.worker.onerror = (e) => reject(new Error(e.message || 'Python worker failed to start'));
+      this.worker.postMessage({ type: 'init', csv: dataset.csv, preload: buildPyPreload() });
+    });
+  }
+
+  /** Steady-state message router, installed once init() resolves. */
+  dispatch(msg) {
+    if (msg.type === 'stdout') { this.onStdout && this.onStdout(msg.text, false); return; }
+    if (msg.type === 'stderr') { this.onStdout && this.onStdout(msg.text, true); return; }
+    const p = this.pending.get(msg.id);
+    if (!p) return;
+    this.pending.delete(msg.id);
+    if (msg.type === 'result') p.resolve(msg.json);
+    else if (msg.type === 'reloaded') p.resolve(null);
+    else if (msg.type === 'error') p.reject(new Error(msg.message));
+  }
+
+  /** Runs one cell of user code; resolves with the JSON string __sandbox_run returned. */
+  run(code) {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ type: 'run', id, code });
+    });
+  }
+
+  /** Re-reads every table from fresh CSVs, undoing any mutation (e.g. `orders = orders.dropna()`). */
+  reloadTables(dataset) {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ type: 'reload-tables', id, csv: dataset.csv, preload: buildPyPreload() });
+    });
+  }
+
+  /**
+   * There is no true interrupt here. Pyodide's own interrupt mechanism needs
+   * a SharedArrayBuffer plus cross-origin-isolation (COOP/COEP) response
+   * headers, which a static GitHub Pages deploy cannot set. So "Stop" means
+   * exactly what it says on the button: hard-terminate the worker. The
+   * caller is expected to boot a fresh one afterwards (see stopPython()).
+   */
+  terminate() {
+    if (this.worker) { this.worker.terminate(); this.worker = null; }
+    if (this.workerUrl) { URL.revokeObjectURL(this.workerUrl); this.workerUrl = null; }
+    this.ready = false;
+    for (const [, p] of this.pending) p.reject(new Error('Python session was stopped.'));
+    this.pending.clear();
+  }
+}
+
+/* ============================================================================
  * SECTION 10 — Cell formatting
  *
  * Distinguishing NULL from '' from '   ' is the single most important thing a
@@ -1615,6 +1941,20 @@ class ResultsGrid {
     const box = el('div', 'errbox');
     box.appendChild(el('h4', null, 'Query failed'));
     box.appendChild(el('pre', null, (err && err.message) ? err.message : String(err)));
+    this.root.appendChild(box);
+  }
+
+  /** The pandas tab's "otherwise as text" path: a scalar, list, dict, etc. */
+  showText(text) {
+    this.root.innerHTML = '';
+    this.result = null;
+    const box = el('div', 'errbox');
+    const h = el('h4', null, 'Result');
+    h.style.color = 'var(--text-dim)';
+    box.appendChild(h);
+    const pre = el('pre', null, text);
+    pre.style.borderLeftColor = 'var(--accent)';
+    box.appendChild(pre);
     this.root.appendChild(box);
   }
 
@@ -1895,6 +2235,17 @@ ORDER BY n DESC;
 --   SELECT sku, count(*) FROM products GROUP BY sku HAVING count(*) > 1;
 -- ...and think about what that does to a revenue join.`;
 
+const STARTER_PY = `# pandas over the exact same dirty CSVs the SQL tab reads — pd, np, and every
+# table (orders, order_items, products, ...) are already loaded below.
+# Ctrl/Cmd+Enter runs the editor contents, or just the selected text.
+# The value of the last expression renders as a grid; print() goes to the console pane.
+
+orders['status'].value_counts()
+
+# Six statuses were promised. Count what you actually got, then try:
+#   products['sku'].value_counts().loc[lambda s: s > 1]
+# ...and think about what that does to a revenue merge.`;
+
 const App = {
   runtime: new DuckDBRuntime(),
   editor: null,
@@ -1925,6 +2276,195 @@ function bootFail(err) {
   console.error(err);
 }
 
+/* ----------------------------------------------------------------------------
+ * pandas panel state and wiring. Mirrors the SQL tab's App/runQuery/resetData
+ * shape closely on purpose — same status bar, same spinner-and-elapsed-time
+ * convention, same "show the real engine error" rule — so the two tabs feel
+ * like one tool. The differences are all things the two engines genuinely
+ * differ on: lazy boot, a console pane for print(), and no true cancellation.
+ * -------------------------------------------------------------------------- */
+
+const PyApp = {
+  runtime: new PyodideRuntime(),
+  editor: null,
+  grid: null,
+  running: false,
+  booting: false,
+  ready: false,
+  timerHandle: null,
+};
+
+function pySetStatus(html, cls) {
+  const s = $('#py-status');
+  s.innerHTML = html;
+  s.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function pySetStep(id, state) {
+  const li = document.getElementById('py-step-' + id);
+  if (!li) return;
+  li.className = state;
+  li.querySelector('.mark').textContent =
+    state === 'ok' ? '✓' : state === 'active' ? '›' : state === 'fail' ? '✗' : '·';
+}
+
+function pyAppendConsole(text, isError) {
+  const body = $('#py-console-body');
+  const empty = body.querySelector('.empty');
+  if (empty) empty.remove();
+  body.appendChild(el('div', 'console-line' + (isError ? ' stderr' : ''), text));
+  body.scrollTop = body.scrollHeight;
+}
+
+function pyClearConsole() {
+  const body = $('#py-console-body');
+  body.innerHTML = '';
+  body.appendChild(el('span', 'empty', 'Nothing printed yet.'));
+}
+
+/** First activation of the pandas tab: create its editor, boot Pyodide. Safe to call repeatedly. */
+async function initPandas() {
+  if (PyApp.booting || PyApp.ready) return;
+  PyApp.booting = true;
+  try {
+    if (!PyApp.editor) {
+      PyApp.editor = await createEditor($('#py-editor'), {
+        language: 'python',
+        value: STARTER_PY,
+        onRun: runPython,
+        theme: document.documentElement.getAttribute('data-theme'),
+      });
+      PyApp.editor.layout();
+    }
+
+    pySetStep('runtime', 'active');
+    await PyApp.runtime.init(App.dataset, {
+      onProgress: (step) => {
+        pySetStep(step, 'ok');
+        if (step === 'runtime') pySetStep('packages', 'active');
+        if (step === 'packages') pySetStep('tables', 'active');
+      },
+      onPkgMsg: (text) => { $('#py-pkg-line').textContent = text; },
+      onStdout: (text, isError) => pyAppendConsole(text, isError),
+    });
+
+    PyApp.ready = true;
+    PyApp.grid = new ResultsGrid($('#py-results'));
+    PyApp.grid.clear(
+      'Results appear here. The value of the last expression renders as a grid when ' +
+      'it is a DataFrame or Series, otherwise as text below. <code>print()</code> ' +
+      'output goes to the console pane underneath, not here.'
+    );
+    $('#py-btn-run').disabled = false;
+    pySetStatus('ready — Ctrl/Cmd+Enter to run');
+    PyApp.editor.focus();
+  } catch (err) {
+    for (const id of ['runtime', 'packages', 'tables']) {
+      const li = document.getElementById('py-step-' + id);
+      if (li && li.className === 'active') pySetStep(id, 'fail');
+    }
+    const box = $('#py-boot-err');
+    if (box) {
+      box.textContent = (err && err.message) ? err.message : String(err);
+      box.classList.add('show');
+    }
+  } finally {
+    PyApp.booting = false;
+  }
+}
+
+async function runPython() {
+  if (PyApp.running || !PyApp.ready || !PyApp.editor) return;
+  const selected = PyApp.editor.getSelection();
+  const code = (selected && selected.trim()) ? selected : PyApp.editor.getValue();
+  if (!code.trim()) return;
+
+  PyApp.running = true;
+  $('#py-btn-run').disabled = true;
+  $('#py-btn-stop').style.display = '';
+  pyClearConsole();
+  const t0 = performance.now();
+  const tick = () => pySetStatus(`<span class="spinner"></span> running… ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+  tick();
+  PyApp.timerHandle = setInterval(tick, 100);
+
+  try {
+    const json = await PyApp.runtime.run(code);
+    const elapsedMs = performance.now() - t0;
+    const result = JSON.parse(json);
+    if (result.kind === 'frame') {
+      PyApp.grid.show({ fields: result.fields, columns: result.columns, numRows: result.numRows, truncated: false, elapsedMs });
+      pySetStatus(`<span class="ok">✓</span> ${result.numRows.toLocaleString('en-US')} rows in ${elapsedMs.toFixed(0)} ms`);
+    } else if (result.kind === 'text') {
+      PyApp.grid.showText(result.text);
+      pySetStatus(`<span class="ok">✓</span> ${elapsedMs.toFixed(0)} ms`);
+    } else {
+      PyApp.grid.clear('No value to display — the last line was not an expression. Check the console pane for print() output.');
+      pySetStatus(`<span class="ok">✓</span> ${elapsedMs.toFixed(0)} ms`);
+    }
+  } catch (err) {
+    PyApp.grid.showError(err);
+    const stopped = /session was stopped/i.test((err && err.message) || '');
+    pySetStatus(`<span class="err">✗</span> ${stopped ? 'stopped' : 'error'}`, 'err');
+  } finally {
+    clearInterval(PyApp.timerHandle);
+    PyApp.running = false;
+    $('#py-btn-run').disabled = !PyApp.ready;
+    $('#py-btn-stop').style.display = 'none';
+  }
+}
+
+/**
+ * "Stop" for the pandas tab. There is no true interrupt (see PyodideRuntime.
+ * terminate's comment), so this hard-kills the worker and boots a fresh one.
+ * Any variables the user defined are lost; the pre-loaded tables come back
+ * clean. This is also reused by the global Reset button when the pandas
+ * runtime is mid-run, since the same "nothing safe to resume" logic applies.
+ */
+async function restartPython() {
+  PyApp.runtime.terminate();
+  PyApp.ready = false;
+  PyApp.running = false;
+  clearInterval(PyApp.timerHandle);
+  $('#py-btn-run').disabled = true;
+  $('#py-btn-stop').style.display = 'none';
+  if (PyApp.grid) PyApp.grid.clear('<span class="spinner"></span>&nbsp; Restarting the Python session…');
+  pySetStatus('<span class="spinner"></span> restarting…');
+  try {
+    PyApp.runtime = new PyodideRuntime();
+    await PyApp.runtime.init(App.dataset, {
+      onPkgMsg: () => {},
+      onStdout: (text, isError) => pyAppendConsole(text, isError),
+    });
+    PyApp.ready = true;
+    if (PyApp.grid) PyApp.grid.clear('Ready again. Previously defined variables were lost — the pre-loaded tables are back to their original state.');
+    pySetStatus('ready — Ctrl/Cmd+Enter to run');
+    $('#py-btn-run').disabled = false;
+  } catch (err) {
+    if (PyApp.grid) PyApp.grid.showError(err);
+    pySetStatus('<span class="err">✗</span> restart failed', 'err');
+  }
+}
+
+function activePanelIsPandas() {
+  const p = document.getElementById('panel-py');
+  return !!p && p.classList.contains('active');
+}
+
+function activatePanel(which) {
+  const toSql = which === 'sql';
+  $('#tab-sql').setAttribute('aria-selected', String(toSql));
+  $('#tab-py').setAttribute('aria-selected', String(!toSql));
+  $('#panel-sql').classList.toggle('active', toSql);
+  $('#panel-py').classList.toggle('active', !toSql);
+  if (toSql) {
+    App.editor && App.editor.layout();
+  } else {
+    initPandas();   // no-op once booted or already booting
+    PyApp.editor && PyApp.editor.layout();
+  }
+}
+
 function renderSidebar() {
   const root = $('#side-tables');
   root.innerHTML = '';
@@ -1938,6 +2478,13 @@ function renderSidebar() {
     const cols = App.schema[name];
     if (cols) btn.title = cols.map((c) => `${c.name}  ${c.type}`).join('\n');
     btn.addEventListener('click', () => {
+      if (activePanelIsPandas()) {
+        if (!PyApp.ready) { activatePanel('py'); return; }   // still booting — just switch tabs
+        PyApp.editor.setValue(`${name}.head(50)`);
+        PyApp.editor.focus();
+        runPython();
+        return;
+      }
       App.editor.setValue(`SELECT *\nFROM ${name}\nLIMIT 200;`);
       App.editor.focus();
       runQuery();
@@ -1986,7 +2533,7 @@ async function runQuery() {
 }
 
 async function resetData() {
-  if (App.running) return;
+  if (App.running || PyApp.running) return;
   const btn = $('#btn-reset');
   btn.disabled = true;
   setStatus('<span class="spinner"></span> rebuilding tables…');
@@ -1997,6 +2544,10 @@ async function resetData() {
     App.counts = await App.runtime.installDataset(App.dataset);
     App.schema = await App.runtime.describeTables();
     renderSidebar();
+    if (PyApp.ready) {
+      await PyApp.runtime.reloadTables(App.dataset);
+      pySetStatus('<span class="ok">✓</span> tables reloaded from fresh data');
+    }
     setStatus('<span class="ok">✓</span> all tables restored');
   } catch (err) {
     App.grid.showError(err);
@@ -2010,18 +2561,19 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   prefSet('theme', theme);
   if (App.editor) App.editor.setTheme(theme);
+  if (PyApp.editor) PyApp.editor.setTheme(theme);
 }
 
-function initSplitter() {
-  const splitter = $('#splitter');
-  const wrap = $('#editor-wrap');
+function initSplitter(splitterId, wrapId, prefKey, getEditor) {
+  const splitter = $(splitterId);
+  const wrap = $(wrapId);
   let dragging = false;
   const onMove = (e) => {
     if (!dragging) return;
     const top = wrap.getBoundingClientRect().top;
     const h = Math.max(80, Math.min(window.innerHeight - 220, e.clientY - top));
     wrap.style.flex = `0 0 ${h}px`;
-    App.editor && App.editor.layout();
+    const ed = getEditor(); ed && ed.layout();
   };
   splitter.addEventListener('mousedown', (e) => {
     dragging = true;
@@ -2035,9 +2587,9 @@ function initSplitter() {
     dragging = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    prefSet('editorHeight', wrap.getBoundingClientRect().height);
+    prefSet(prefKey, wrap.getBoundingClientRect().height);
   });
-  const saved = parseFloat(prefGet('editorHeight', ''));
+  const saved = parseFloat(prefGet(prefKey, ''));
   if (saved > 80) wrap.style.flex = `0 0 ${saved}px`;
 }
 
@@ -2068,17 +2620,30 @@ function initChrome() {
   });
   $('#btn-reset').addEventListener('click', resetData);
 
+  $('#tab-sql').addEventListener('click', () => activatePanel('sql'));
+  $('#tab-py').addEventListener('click', () => activatePanel('py'));
+  $('#py-btn-run').addEventListener('click', runPython);
+  $('#py-btn-stop').addEventListener('click', restartPython);
+  $('#py-console-clear').addEventListener('click', pyClearConsole);
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') modal.classList.remove('open');
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       $('#btn-sidebar').click();
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runQuery(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      activePanelIsPandas() ? runPython() : runQuery();
+    }
   });
 
-  window.addEventListener('resize', () => App.editor && App.editor.layout());
-  initSplitter();
+  window.addEventListener('resize', () => {
+    App.editor && App.editor.layout();
+    PyApp.editor && PyApp.editor.layout();
+  });
+  initSplitter('#splitter', '#editor-wrap', 'editorHeight', () => App.editor);
+  initSplitter('#py-splitter', '#py-editor-wrap', 'pyEditorHeight', () => PyApp.editor);
 }
 
 async function main() {
